@@ -216,7 +216,7 @@ impl ArmCpu {
 
         // Decode instruction type
         let opcode = (instr >> 24) & 0xF;
-        let i_bit = (instr >> 25) & 1;
+        let _i_bit = (instr >> 25) & 1;
 
         match opcode {
             // Data processing (ALU operations)
@@ -535,7 +535,6 @@ impl std::fmt::Debug for ArmCpu {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::Memory;
 
     #[test]
     fn test_cpu_creation() {
