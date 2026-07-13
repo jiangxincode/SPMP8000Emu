@@ -121,4 +121,4 @@ The emulator supports games in NGame1.0 format (.bin files) for SPMP8000 and SPC
 
 ## License
 
-BSD-3-Clause
+This project is licensed under the [BSD 3-Clause License](LICENSE).
