@@ -1,6 +1,10 @@
 # SPMP8000 Emulator —— A SPMP8000 game emulator written in Rust
 
 <p align="center">
+  <img src="res/logo-banner.png" alt="SPMP8000 Emulator" width="600">
+</p>
+
+<p align="center">
   <a href="https://jiangxincode.github.io/SPMP8000Emu/"><img src="https://img.shields.io/badge/Website-SPMP8000Emu-E8553A?logo=githubpages&logoColor=white" alt="Website"></a>
   <a href="https://github.com/jiangxincode/SPMP8000Emu/actions/workflows/ci.yml"><img src="https://github.com/jiangxincode/SPMP8000Emu/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/jiangxincode/SPMP8000Emu/releases/latest"><img src="https://img.shields.io/github/v/release/jiangxincode/SPMP8000Emu" alt="Release"></a>
