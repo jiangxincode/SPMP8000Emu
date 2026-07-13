@@ -1,0 +1,18 @@
+[package]
+name = "spmp8000-emu"
+version.workspace = true
+edition.workspace = true
+description = "SPMP8000 standalone emulator (minifb window + CLI)"
+license.workspace = true
+
+[[bin]]
+name = "spmp8000-emu"
+path = "src/main.rs"
+
+[dependencies]
+spmp8000-core.workspace = true
+anyhow.workspace = true
+log.workspace = true
+clap = { version = "4", features = ["derive"] }
+minifb = "0.28"
+env_logger = "0.11"

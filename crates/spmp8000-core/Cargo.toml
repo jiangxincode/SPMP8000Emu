@@ -1,0 +1,22 @@
+[package]
+name = "spmp8000-core"
+version.workspace = true
+edition.workspace = true
+description = "Platform-independent SPMP8000 emulator engine"
+license.workspace = true
+
+[lib]
+name = "spmp8000_core"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# Byte manipulation
+byteorder = "1"
+
+[dev-dependencies]
+tempfile = "3"

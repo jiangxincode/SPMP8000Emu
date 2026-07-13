@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/spmp8000-core",
+    "crates/spmp8000-emu",
+    "crates/spmp8000-libretro",
+]
+# Default build the libretro core for CI/buildbot compatibility
+default-members = ["crates/spmp8000-libretro"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+description = "SPMP8000 game emulator written in Rust"
+license = "BSD-3-Clause"
+
+[workspace.dependencies]
+spmp8000-core = { path = "crates/spmp8000-core" }
+anyhow = "1"
+thiserror = "2"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Standalone frontend dependencies
+minifb = "0.28"
+clap = { version = "4", features = ["derive"] }
+env_logger = "0.11"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
