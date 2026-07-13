@@ -28,9 +28,7 @@ impl NGameApi {
             let file = FileHandle {
                 host_path: host_path.clone(),
                 position: 0,
-                size: std::fs::metadata(&host_path)
-                    .map(|m| m.len())
-                    .unwrap_or(0),
+                size: std::fs::metadata(&host_path).map(|m| m.len()).unwrap_or(0),
                 is_writable,
             };
 
@@ -93,6 +91,7 @@ impl NGameApi {
                 if let Ok(mut host_file) = std::fs::OpenOptions::new()
                     .write(true)
                     .create(true)
+                    .truncate(false)
                     .open(&file.host_path)
                 {
                     if host_file.seek(SeekFrom::Start(file.position)).is_ok() {
@@ -129,9 +128,9 @@ impl NGameApi {
 
         if let Some(file) = self.open_files.get_mut(&fd) {
             let new_pos = match whence {
-                0 => SeekFrom::Start(offset as u64),      // SEEK_SET
-                1 => SeekFrom::Current(offset as i64),     // SEEK_CUR
-                2 => SeekFrom::End(offset as i64),         // SEEK_END
+                0 => SeekFrom::Start(offset as u64),   // SEEK_SET
+                1 => SeekFrom::Current(offset as i64), // SEEK_CUR
+                2 => SeekFrom::End(offset as i64),     // SEEK_END
                 _ => {
                     memory.set_register(crate::memory::REG_R0, u32::MAX);
                     return;
@@ -142,12 +141,8 @@ impl NGameApi {
             // Store the intended position and apply on next read/write
             match new_pos {
                 SeekFrom::Start(pos) => file.position = pos,
-                SeekFrom::Current(delta) => {
-                    file.position = (file.position as i64 + delta) as u64
-                }
-                SeekFrom::End(delta) => {
-                    file.position = (file.size as i64 + delta) as u64
-                }
+                SeekFrom::Current(delta) => file.position = (file.position as i64 + delta) as u64,
+                SeekFrom::End(delta) => file.position = (file.size as i64 + delta) as u64,
             }
 
             memory.set_register(crate::memory::REG_R0, 0); // Success
@@ -170,9 +165,7 @@ impl NGameApi {
         let host_path = format!("{}/{}", self.game_dir, filename);
 
         if std::path::Path::new(&host_path).exists() {
-            let size = std::fs::metadata(&host_path)
-                .map(|m| m.len())
-                .unwrap_or(0);
+            let size = std::fs::metadata(&host_path).map(|m| m.len()).unwrap_or(0);
             let file = FileHandle {
                 host_path,
                 position: 0,
@@ -238,6 +231,7 @@ impl NGameApi {
                 if let Ok(mut host_file) = std::fs::OpenOptions::new()
                     .write(true)
                     .create(true)
+                    .truncate(false)
                     .open(&file.host_path)
                 {
                     if host_file.seek(SeekFrom::Start(file.position)).is_ok() {

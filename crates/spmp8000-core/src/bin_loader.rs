@@ -25,8 +25,8 @@ const OFFSET_VENDOR: usize = 0x0C;
 const OFFSET_CHIP_ID: usize = 0x1C;
 const OFFSET_GAME_NAME: usize = 0x2C;
 const OFFSET_MEDIA_TYPE: usize = 0x44;
-const OFFSET_VERSION: usize = 0x70;
-const OFFSET_CODE_SIZE: usize = 0x74;
+const OFFSET_VERSION: usize = 0x74;
+const OFFSET_CODE_SIZE: usize = 0x78;
 
 /// Chip type enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,7 +67,7 @@ pub struct NGameHeader {
     pub code_size: u32,
     /// Total file size
     pub file_size: usize,
-    /// Offset where compressed data starts
+    /// Offset where encrypted game payload starts
     pub data_offset: usize,
 }
 
@@ -167,12 +167,20 @@ pub fn parse_header(data: &[u8]) -> Result<NGameHeader> {
     })
 }
 
-/// Extract compressed data from BIN file
-pub fn extract_compressed_data(data: &[u8]) -> Result<&[u8]> {
+/// Extract encrypted game payload from BIN file
+pub fn extract_game_payload(data: &[u8]) -> Result<&[u8]> {
     if data.len() < 0x80 {
         anyhow::bail!("File too small");
     }
     Ok(&data[0x80..])
+}
+
+/// Extract compressed data from BIN file.
+///
+/// Kept for compatibility with older call sites; NGame BIN payloads are
+/// encrypted rather than conventionally compressed.
+pub fn extract_compressed_data(data: &[u8]) -> Result<&[u8]> {
+    extract_game_payload(data)
 }
 
 #[cfg(test)]
@@ -195,9 +203,9 @@ mod tests {
         // Set media type
         data[68..78].copy_from_slice(b"Sunmedia\0\0");
         // Set version
-        data[112..116].copy_from_slice(b"100\0");
+        data[116..120].copy_from_slice(b"100\0");
         // Set code size
-        data[116..120].copy_from_slice(&1024u32.to_le_bytes());
+        data[120..124].copy_from_slice(&1024u32.to_le_bytes());
 
         let header = parse_header(&data).unwrap();
         assert!(header.is_valid());

@@ -63,9 +63,7 @@ impl NGameApi {
 
             // Store key map for this controller
             if (controller as usize) < 2 {
-                for i in 0..12 {
-                    self.key_map[i] = default_scancodes[i];
-                }
+                self.key_map[..12].copy_from_slice(&default_scancodes);
             }
         }
 
@@ -101,13 +99,27 @@ impl NGameApi {
         let mut key_state = 0u32;
 
         // Map button bits to NativeGE key bits
-        if buttons & (1 << 0) != 0 { key_state |= GE_KEY_UP; }
-        if buttons & (1 << 1) != 0 { key_state |= GE_KEY_DOWN; }
-        if buttons & (1 << 2) != 0 { key_state |= GE_KEY_LEFT; }
-        if buttons & (1 << 3) != 0 { key_state |= GE_KEY_RIGHT; }
-        if buttons & (1 << 4) != 0 { key_state |= GE_KEY_O; }
-        if buttons & (1 << 5) != 0 { key_state |= GE_KEY_X; }
-        if buttons & (1 << 11) != 0 { key_state |= GE_KEY_START; }
+        if buttons & (1 << 0) != 0 {
+            key_state |= GE_KEY_UP;
+        }
+        if buttons & (1 << 1) != 0 {
+            key_state |= GE_KEY_DOWN;
+        }
+        if buttons & (1 << 2) != 0 {
+            key_state |= GE_KEY_LEFT;
+        }
+        if buttons & (1 << 3) != 0 {
+            key_state |= GE_KEY_RIGHT;
+        }
+        if buttons & (1 << 4) != 0 {
+            key_state |= GE_KEY_O;
+        }
+        if buttons & (1 << 5) != 0 {
+            key_state |= GE_KEY_X;
+        }
+        if buttons & (1 << 11) != 0 {
+            key_state |= GE_KEY_START;
+        }
 
         self.key_state = key_state;
     }

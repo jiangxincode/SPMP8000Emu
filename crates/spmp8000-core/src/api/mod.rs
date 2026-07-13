@@ -4,14 +4,14 @@
 // through the function table. Each API is implemented as a native Rust function
 // that manipulates the emulator state.
 
-pub mod emu_graph;
-pub mod emu_sound;
-pub mod emu_key;
 pub mod emu_fs;
+pub mod emu_graph;
+pub mod emu_key;
+pub mod emu_sound;
 pub mod native_ge;
 
-use std::collections::HashMap;
 use crate::memory::Memory;
+use std::collections::HashMap;
 
 /// File handle for emulated file system
 #[derive(Debug, Clone)]
@@ -121,6 +121,9 @@ impl NGameApi {
         self.open_files.remove(&fd).is_some()
     }
 
+    fn return_success(&mut self, memory: &mut Memory) {
+        memory.set_register(crate::memory::REG_R0, 0);
+    }
     /// Handle an SVC call
     pub fn handle_svc(&mut self, svc_num: u32, memory: &mut Memory) {
         match svc_num {
@@ -133,12 +136,30 @@ impl NGameApi {
                 }
                 memory.set_register(crate::memory::REG_R0, 0);
             }
+            0x02 => self.return_success(memory), // MCatchFlush
+            0x03 => self.return_success(memory), // MCatchPaint
+            0x04 => self.return_success(memory), // MCatchLoadImage
+            0x05 => self.return_success(memory), // MCatchFreeImage
             0x06 => self.mcatch_init_graph(memory),
+            0x07 => self.return_success(memory), // MCatchSetColorROP
+            0x08 => self.return_success(memory), // MCatchGetColorROP
+            0x09 => self.return_success(memory), // MCatchSetFGColor
+            0x0A => self.return_success(memory), // MCatchGetFGColor
+            0x0B => self.return_success(memory), // MCatchSetDisplayScreen
+            0x0C => self.return_success(memory), // MCatchGetDisplayScreen
             0x0D => self.mcatch_set_framebuffer(memory),
+            0x0E => self.return_success(memory), // MCatchGetFrameBuffer
+            0x0F => self.return_success(memory), // MCatchBitblt
+            0x10 => self.return_success(memory), // MCatchSprite
             0x11 => self.mcatch_fill_rect(memory),
             0x12 => self.native_ge_init_res(memory),
+            0x13 => self.native_ge_get_res(memory),
             0x14 => self.native_ge_play_res(memory),
+            0x15 => self.return_success(memory), // NativeGEPauseRes
+            0x16 => self.return_success(memory), // NativeGEResumeRes
             0x17 => self.native_ge_stop_res(memory),
+            0x18 => self.return_success(memory), // NativeGEWriteRecord
+            0x19 => self.return_success(memory), // NativeGEReadRecord
             0x1A => self.native_ge_get_key_input(memory),
             0x1B => self.cyg_thread_delay(memory),
             0x1C => self.native_ge_get_time(memory),

@@ -7,13 +7,13 @@ use crate::memory::Memory;
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct EmuSoundParams {
-    pub buf: u32,           // Audio buffer address
-    pub buf_size: u32,      // Buffer size in bytes
-    pub rate: u32,          // Sample rate (Hz)
-    pub depth: u8,          // Bit depth (usually 16)
-    pub channels: u8,       // Number of channels (1 or 2)
+    pub buf: u32,      // Audio buffer address
+    pub buf_size: u32, // Buffer size in bytes
+    pub rate: u32,     // Sample rate (Hz)
+    pub depth: u8,     // Bit depth (usually 16)
+    pub channels: u8,  // Number of channels (1 or 2)
     pub _padding: u16,
-    pub callback: u32,      // Callback function address
+    pub callback: u32, // Callback function address
 }
 
 impl NGameApi {

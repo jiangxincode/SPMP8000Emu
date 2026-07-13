@@ -238,7 +238,11 @@ pub extern "C" fn retro_run() {
 // ============================================================
 
 #[no_mangle]
-pub extern "C" fn retro_load_game_special(_type: u32, _info: *const retro_game_info, _num: usize) -> bool {
+pub extern "C" fn retro_load_game_special(
+    _type: u32,
+    _info: *const retro_game_info,
+    _num: usize,
+) -> bool {
     false
 }
 

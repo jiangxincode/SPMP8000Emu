@@ -18,10 +18,26 @@ pub struct Permission {
 }
 
 impl Permission {
-    pub const READ: Permission = Permission { read: true, write: false, execute: false };
-    pub const WRITE: Permission = Permission { read: false, write: true, execute: false };
-    pub const EXEC: Permission = Permission { read: false, write: false, execute: true };
-    pub const ALL: Permission = Permission { read: true, write: true, execute: true };
+    pub const READ: Permission = Permission {
+        read: true,
+        write: false,
+        execute: false,
+    };
+    pub const WRITE: Permission = Permission {
+        read: false,
+        write: true,
+        execute: false,
+    };
+    pub const EXEC: Permission = Permission {
+        read: false,
+        write: false,
+        execute: true,
+    };
+    pub const ALL: Permission = Permission {
+        read: true,
+        write: true,
+        execute: true,
+    };
 }
 
 impl std::ops::BitOr for Permission {
@@ -95,12 +111,7 @@ impl Memory {
     /// Initialize default memory regions
     pub fn init_default(&mut self) -> Result<()> {
         // Main RAM
-        self.map_region(
-            RAM_BASE,
-            RAM_SIZE,
-            Permission::ALL,
-            "RAM",
-        )?;
+        self.map_region(RAM_BASE, RAM_SIZE, Permission::ALL, "RAM")?;
 
         // Video RAM
         self.map_region(
@@ -108,14 +119,6 @@ impl Memory {
             VRAM_SIZE,
             Permission::READ | Permission::WRITE,
             "VRAM",
-        )?;
-
-        // Function table area
-        self.map_region(
-            FUNC_TABLE_BASE,
-            FUNC_TABLE_SIZE,
-            Permission::ALL,
-            "FUNC_TABLE",
         )?;
 
         Ok(())
@@ -148,7 +151,12 @@ impl Memory {
             name: name.to_string(),
         });
 
-        log::info!("Mapped memory region: {} at 0x{:08X} ({} bytes)", name, base, size);
+        log::info!(
+            "Mapped memory region: {} at 0x{:08X} ({} bytes)",
+            name,
+            base,
+            size
+        );
         Ok(())
     }
 
@@ -282,7 +290,9 @@ mod tests {
     #[test]
     fn test_memory_read_write() {
         let mut memory = Memory::new();
-        memory.map_region(0x1000, 4096, Permission::ALL, "test").unwrap();
+        memory
+            .map_region(0x1000, 4096, Permission::ALL, "test")
+            .unwrap();
 
         memory.write_u32(0x1000, 0x12345678).unwrap();
         assert_eq!(memory.read_u32(0x1000).unwrap(), 0x12345678);
@@ -297,7 +307,9 @@ mod tests {
     #[test]
     fn test_memory_block_operations() {
         let mut memory = Memory::new();
-        memory.map_region(0x0, 4096, Permission::ALL, "test").unwrap();
+        memory
+            .map_region(0x0, 4096, Permission::ALL, "test")
+            .unwrap();
 
         let data = vec![1, 2, 3, 4, 5];
         memory.write_block(0x100, &data).unwrap();
@@ -309,7 +321,9 @@ mod tests {
     #[test]
     fn test_memory_string() {
         let mut memory = Memory::new();
-        memory.map_region(0x0, 4096, Permission::ALL, "test").unwrap();
+        memory
+            .map_region(0x0, 4096, Permission::ALL, "test")
+            .unwrap();
 
         let s = "Hello";
         for (i, c) in s.bytes().enumerate() {
@@ -323,7 +337,9 @@ mod tests {
     #[test]
     fn test_memory_out_of_bounds() {
         let mut memory = Memory::new();
-        memory.map_region(0x1000, 256, Permission::ALL, "test").unwrap();
+        memory
+            .map_region(0x1000, 256, Permission::ALL, "test")
+            .unwrap();
 
         assert!(memory.read_u32(0x2000).is_err());
         assert!(memory.write_u32(0x2000, 0).is_err());

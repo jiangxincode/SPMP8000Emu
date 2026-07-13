@@ -73,8 +73,7 @@ impl SaveStateManager {
         let json = serde_json::to_string_pretty(state)
             .map_err(|e| format!("Failed to serialize save state: {}", e))?;
 
-        std::fs::write(&path, json)
-            .map_err(|e| format!("Failed to write save state: {}", e))?;
+        std::fs::write(&path, json).map_err(|e| format!("Failed to write save state: {}", e))?;
 
         log::info!("Saved state to {}", path.display());
         Ok(())

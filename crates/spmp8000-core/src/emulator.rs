@@ -51,8 +51,7 @@ impl Emulator {
             .with_context(|| format!("Failed to read game file: {}", path.display()))?;
 
         // Parse header
-        let header = bin_loader::parse_header(&data)
-            .context("Failed to parse NGame header")?;
+        let header = bin_loader::parse_header(&data).context("Failed to parse NGame header")?;
 
         log::info!(
             "Game: {} ({} {}, {})",
@@ -64,8 +63,8 @@ impl Emulator {
 
         // Extract and decompress data
         let compressed_data = bin_loader::extract_compressed_data(&data)?;
-        let decompressed_data = decompressor::decompress(compressed_data)
-            .context("Failed to decompress game data")?;
+        let decompressed_data =
+            decompressor::decompress(compressed_data).context("Failed to decompress game data")?;
 
         log::info!(
             "Decompressed: {} bytes (from {} bytes)",
@@ -76,7 +75,9 @@ impl Emulator {
         // Initialize components
         let cpu = ArmCpu::new().context("Failed to create ARM CPU")?;
         let mut memory = Memory::new();
-        memory.init_default().context("Failed to initialize memory")?;
+        memory
+            .init_default()
+            .context("Failed to initialize memory")?;
 
         let function_table = FunctionTable::new();
         let api = NGameApi::new();
@@ -111,6 +112,7 @@ impl Emulator {
         // Set up CPU
         emu.cpu.set_pc(memory::CODE_LOAD_ADDR)?;
         emu.cpu.set_sp(0x00F00000)?; // Stack at top of RAM
+        emu.cpu.set_register(0, memory::FUNC_TABLE_BASE)?;
 
         // Set game directory for file operations
         if let Some(parent) = emu.game_path.parent() {
@@ -126,27 +128,12 @@ impl Emulator {
         // Load code at the standard load address
         let load_addr = memory::CODE_LOAD_ADDR;
 
-        // Map a region for the code
-        let code_size = code.len().max(1024 * 1024); // At least 1MB
-        self.memory
-            .map_region(
-                load_addr,
-                code_size as u32,
-                crate::memory::Permission::ALL,
-                "GAME_CODE",
-            )
-            .context("Failed to map code region")?;
-
         // Write code to memory
         self.memory
             .write_block(load_addr, code)
             .context("Failed to write game code")?;
 
-        log::info!(
-            "Loaded {} bytes of code at 0x{:08X}",
-            code.len(),
-            load_addr
-        );
+        log::info!("Loaded {} bytes of code at 0x{:08X}", code.len(), load_addr);
 
         Ok(())
     }
@@ -188,15 +175,17 @@ impl Emulator {
             match self.cpu.step(&mut self.memory) {
                 Ok(crate::arm_cpu::CpuResult::Continue) => {}
                 Ok(crate::arm_cpu::CpuResult::SvcCall(svc_num)) => {
-                    // Handle SVC call
+                    self.sync_cpu_registers_to_memory();
                     self.api.handle_svc(svc_num, &mut self.memory);
+                    self.sync_memory_registers_to_cpu();
                 }
                 Ok(crate::arm_cpu::CpuResult::Halt) => {
                     self.is_running = false;
                     break;
                 }
                 Err(e) => {
-                    log::error!("CPU error: {:?}", e);
+                    let pc = self.cpu.get_pc().unwrap_or(0);
+                    log::error!("CPU error at PC=0x{:08X}: {:?}", pc, e);
                     self.is_running = false;
                     break;
                 }
@@ -205,6 +194,18 @@ impl Emulator {
         }
 
         // Update renderer
+        if self.renderer.fb_addr != self.api.framebuffer_addr {
+            self.renderer
+                .set_framebuffer_address(self.api.framebuffer_addr);
+        }
+        if (1..=640).contains(&self.api.framebuffer_width)
+            && (1..=480).contains(&self.api.framebuffer_height)
+            && (self.renderer.width != self.api.framebuffer_width
+                || self.renderer.height != self.api.framebuffer_height)
+        {
+            self.renderer
+                .set_dimensions(self.api.framebuffer_width, self.api.framebuffer_height);
+        }
         self.renderer.update_from_memory(&self.memory);
 
         // Update audio buffer
@@ -214,6 +215,21 @@ impl Emulator {
         }
     }
 
+    fn sync_cpu_registers_to_memory(&mut self) {
+        for reg in 0..=15 {
+            let value = self.cpu.regs.get(reg as u32);
+            self.memory.set_register(reg, value);
+        }
+        self.memory
+            .set_register(memory::REG_CPSR, self.cpu.regs.cpsr);
+    }
+
+    fn sync_memory_registers_to_cpu(&mut self) {
+        for reg in 0..=15 {
+            self.cpu.regs.set(reg as u32, self.memory.get_register(reg));
+        }
+        self.cpu.regs.cpsr = self.memory.get_register(memory::REG_CPSR);
+    }
     /// Start the emulation
     pub fn start(&mut self) {
         self.is_running = true;

@@ -7,8 +7,8 @@ pub const BUTTON_UP: usize = 0;
 pub const BUTTON_DOWN: usize = 1;
 pub const BUTTON_LEFT: usize = 2;
 pub const BUTTON_RIGHT: usize = 3;
-pub const BUTTON_O: usize = 4;      // A/Cross button
-pub const BUTTON_X: usize = 5;      // B/Circle button
+pub const BUTTON_O: usize = 4; // A/Cross button
+pub const BUTTON_X: usize = 5; // B/Circle button
 pub const BUTTON_START: usize = 11;
 pub const BUTTON_SELECT: usize = 10;
 
@@ -43,17 +43,17 @@ impl InputHandler {
     /// Set default keyboard mappings
     fn set_default_mappings(&mut self) {
         // Arrow keys
-        self.key_map[BUTTON_UP] = Some(0x26);    // Up arrow
-        self.key_map[BUTTON_DOWN] = Some(0x28);  // Down arrow
-        self.key_map[BUTTON_LEFT] = Some(0x25);  // Left arrow
+        self.key_map[BUTTON_UP] = Some(0x26); // Up arrow
+        self.key_map[BUTTON_DOWN] = Some(0x28); // Down arrow
+        self.key_map[BUTTON_LEFT] = Some(0x25); // Left arrow
         self.key_map[BUTTON_RIGHT] = Some(0x27); // Right arrow
 
         // Action buttons
-        self.key_map[BUTTON_O] = Some(0x5A);     // Z key
-        self.key_map[BUTTON_X] = Some(0x58);     // X key
+        self.key_map[BUTTON_O] = Some(0x5A); // Z key
+        self.key_map[BUTTON_X] = Some(0x58); // X key
 
         // System buttons
-        self.key_map[BUTTON_START] = Some(0x0D);  // Enter
+        self.key_map[BUTTON_START] = Some(0x0D); // Enter
         self.key_map[BUTTON_SELECT] = Some(0x1B); // Escape
     }
 
@@ -92,7 +92,8 @@ impl InputHandler {
 
     /// Process a key press event
     pub fn key_down(&mut self, key_code: u32) {
-        let buttons_to_press: Vec<usize> = self.key_map
+        let buttons_to_press: Vec<usize> = self
+            .key_map
             .iter()
             .enumerate()
             .filter_map(|(button, mapping)| {
@@ -115,7 +116,8 @@ impl InputHandler {
 
     /// Process a key release event
     pub fn key_up(&mut self, key_code: u32) {
-        let buttons_to_release: Vec<usize> = self.key_map
+        let buttons_to_release: Vec<usize> = self
+            .key_map
             .iter()
             .enumerate()
             .filter_map(|(button, mapping)| {

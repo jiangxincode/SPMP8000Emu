@@ -133,7 +133,9 @@ mod tests {
     fn test_audio_buffer_update() {
         let mut engine = AudioEngine::new(22050);
         let mut memory = Memory::new();
-        memory.map_region(0x1000, 4096, crate::memory::Permission::ALL, "test").unwrap();
+        memory
+            .map_region(0x1000, 4096, crate::memory::Permission::ALL, "test")
+            .unwrap();
 
         // Write some samples
         memory.write_u16(0x1000, 1000).unwrap();

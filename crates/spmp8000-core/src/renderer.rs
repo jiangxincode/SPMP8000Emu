@@ -121,6 +121,7 @@ impl Renderer {
     }
 
     /// Fill a rectangle with a color (for debugging/testing)
+    #[allow(clippy::too_many_arguments)]
     pub fn fill_rect(&mut self, x: u32, y: u32, w: u32, h: u32, r: u8, g: u8, b: u8) {
         for dy in 0..h {
             for dx in 0..w {
@@ -157,7 +158,9 @@ mod tests {
     fn test_rgb565_conversion() {
         let mut renderer = Renderer::new(2, 1);
         let mut memory = Memory::new();
-        memory.map_region(0x1000, 4096, crate::memory::Permission::ALL, "test").unwrap();
+        memory
+            .map_region(0x1000, 4096, crate::memory::Permission::ALL, "test")
+            .unwrap();
 
         // White pixel in RGB565: 0xFFFF
         memory.write_u16(0x1000, 0xFFFF).unwrap();

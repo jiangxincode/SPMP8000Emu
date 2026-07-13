@@ -31,6 +31,14 @@ struct Cli {
     /// Audio volume (0-100)
     #[arg(short, long, default_value = "100", value_parser = clap::value_parser!(u32).range(0..=100))]
     volume: u32,
+
+    /// Run without opening a window
+    #[arg(long)]
+    headless: bool,
+
+    /// Number of frames to run in headless mode
+    #[arg(long, default_value = "60")]
+    frames: u32,
 }
 
 fn main() -> Result<()> {
@@ -57,7 +65,25 @@ fn main() -> Result<()> {
     let display_width = width * cli.scale;
     let display_height = height * cli.scale;
 
-    log::info!("Resolution: {}x{} (display: {}x{})", width, height, display_width, display_height);
+    log::info!(
+        "Resolution: {}x{} (display: {}x{})",
+        width,
+        height,
+        display_width,
+        display_height
+    );
+
+    if cli.headless {
+        emu.start();
+        for frame in 0..cli.frames {
+            emu.tick();
+            if !emu.is_running() && !emu.should_exit() {
+                anyhow::bail!("Emulation stopped before frame {}", frame + 1);
+            }
+        }
+        log::info!("Headless run completed: {} frames", cli.frames);
+        return Ok(());
+    }
 
     // Create window
     let mut window = Window::new(

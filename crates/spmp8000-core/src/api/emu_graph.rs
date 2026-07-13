@@ -7,11 +7,11 @@ use crate::memory::Memory;
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct EmuGraphParams {
-    pub pixels: u32,        // Source framebuffer address
-    pub width: u32,         // Source width
-    pub height: u32,        // Source height
-    pub has_palette: u32,   // Whether palette is used
-    pub palette: u32,       // Palette address
+    pub pixels: u32,      // Source framebuffer address
+    pub width: u32,       // Source width
+    pub height: u32,      // Source height
+    pub has_palette: u32, // Whether palette is used
+    pub palette: u32,     // Palette address
     pub _unused_14: u32,
     pub src_clip_x: u32,
     pub src_clip_y: u32,
@@ -29,7 +29,12 @@ impl NGameApi {
         let width = memory.read_u32(params_addr + 4).unwrap_or(320);
         let height = memory.read_u32(params_addr + 8).unwrap_or(240);
 
-        log::info!("emuIfGraphInit: {}x{} framebuffer at 0x{:08X}", width, height, pixels);
+        log::info!(
+            "emuIfGraphInit: {}x{} framebuffer at 0x{:08X}",
+            width,
+            height,
+            pixels
+        );
 
         self.framebuffer_addr = Some(pixels);
         self.framebuffer_width = width;
@@ -88,7 +93,7 @@ impl NGameApi {
 
         log::info!("MCatchSetFrameBuffer: {}x{}", width, height);
 
-        if width > 0 && height > 0 {
+        if (1..=640).contains(&width) && (1..=480).contains(&height) {
             self.framebuffer_width = width;
             self.framebuffer_height = height;
             self.framebuffer_pitch = width * 2;
@@ -116,16 +121,14 @@ impl NGameApi {
             let b = self.fg_color[2];
 
             // Convert to RGB565
-            let color565 = ((r as u16 & 0xF8) << 8) |
-                           ((g as u16 & 0xFC) << 3) |
-                           ((b as u16) >> 3);
+            let color565 = ((r as u16 & 0xF8) << 8) | ((g as u16 & 0xFC) << 3) | ((b as u16) >> 3);
 
             for dy in 0..h {
                 for dx in 0..w {
                     let px = x + dx;
                     let py = y + dy;
                     if px < self.framebuffer_width && py < self.framebuffer_height {
-                        let offset = (py * self.framebuffer_pitch + px * 2) as u32;
+                        let offset = py * self.framebuffer_pitch + px * 2;
                         let _ = memory.write_u16(fb_addr + offset, color565);
                     }
                 }
