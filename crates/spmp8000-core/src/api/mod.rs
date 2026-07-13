@@ -13,6 +13,16 @@ pub mod native_ge;
 use crate::memory::Memory;
 use std::collections::HashMap;
 
+#[derive(Debug, Clone)]
+pub struct Surface {
+    pub data_addr: u32,
+    pub width: u16,
+    pub height: u16,
+    pub img_type: u32,
+    pub palette_addr: u32,
+    pub palette_entries: u16,
+}
+
 /// File handle for emulated file system
 #[derive(Debug, Clone)]
 pub struct FileHandle {
@@ -31,6 +41,9 @@ pub struct NGameApi {
     pub framebuffer_height: u32,
     pub framebuffer_pitch: u32,
     pub fg_color: [u8; 3], // RGB
+    pub color_rop: u8,
+    pub surfaces: HashMap<u8, Surface>,
+    pub next_surface_id: u8,
 
     // Audio state
     pub audio_buffer_addr: Option<u32>,
@@ -64,6 +77,9 @@ impl NGameApi {
             framebuffer_height: 240,
             framebuffer_pitch: 640, // width * 2 for RGB565
             fg_color: [255, 255, 255],
+            color_rop: 0xF0,
+            surfaces: HashMap::new(),
+            next_surface_id: 1,
 
             audio_buffer_addr: None,
             audio_buffer_size: 0,
@@ -138,10 +154,10 @@ impl NGameApi {
             }
             0x02 => self.return_success(memory), // MCatchFlush
             0x03 => self.return_success(memory), // MCatchPaint
-            0x04 => self.return_success(memory), // MCatchLoadImage
-            0x05 => self.return_success(memory), // MCatchFreeImage
+            0x04 => self.mcatch_load_image(memory),
+            0x05 => self.mcatch_free_image(memory),
             0x06 => self.mcatch_init_graph(memory),
-            0x07 => self.return_success(memory), // MCatchSetColorROP
+            0x07 => self.mcatch_set_color_rop(memory),
             0x08 => self.return_success(memory), // MCatchGetColorROP
             0x09 => self.mcatch_set_fg_color(memory),
             0x0A => self.return_success(memory), // MCatchGetFGColor
@@ -149,8 +165,8 @@ impl NGameApi {
             0x0C => self.return_success(memory), // MCatchGetDisplayScreen
             0x0D => self.mcatch_set_framebuffer(memory),
             0x0E => self.mcatch_get_framebuffer(memory),
-            0x0F => self.return_success(memory), // MCatchBitblt
-            0x10 => self.return_success(memory), // MCatchSprite
+            0x0F => self.mcatch_bitblt(memory),
+            0x10 => self.mcatch_sprite(memory),
             0x11 => self.mcatch_fill_rect(memory),
             0x12 => self.native_ge_init_res(memory),
             0x13 => self.native_ge_get_res(memory),
@@ -169,6 +185,7 @@ impl NGameApi {
             0x21 => self.native_ge_fs_write(memory),
             0x22 => self.native_ge_fs_close(memory),
             0x23 => self.native_ge_fs_seek(memory),
+            0x10A4 => self.mcatch_query_image(memory),
 
             // emuIf functions
             0x30 => self.emu_if_graph_init(memory),
@@ -183,6 +200,17 @@ impl NGameApi {
             0x3F => self.emu_if_fs_file_read(memory),
             0x43 => self.emu_if_fs_file_close(memory),
 
+            0x1000..=0x2000 => {
+                log::debug!(
+                    "Default native function at table offset 0x{:03X}: r0=0x{:08X} r1=0x{:08X} r2=0x{:08X} r3=0x{:08X}",
+                    svc_num - 0x1000,
+                    memory.get_register(crate::memory::REG_R0),
+                    memory.get_register(crate::memory::REG_R1),
+                    memory.get_register(crate::memory::REG_R2),
+                    memory.get_register(crate::memory::REG_R3)
+                );
+                self.return_success(memory);
+            }
             _ => {
                 log::warn!("Unhandled SVC call: 0x{:02X}", svc_num);
             }

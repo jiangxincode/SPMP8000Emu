@@ -292,6 +292,10 @@ impl ArmCpu {
             return self.execute_branch_exchange(instr);
         }
 
+        if (instr & 0x0FC000F0) == 0x00000090 {
+            return self.execute_multiply(instr);
+        }
+
         if (instr & 0x0E000090) == 0x00000090 && ((instr >> 5) & 0x3) != 0 {
             return self.execute_halfword_transfer(instr, memory);
         }
@@ -442,6 +446,29 @@ impl ArmCpu {
         self.regs.set(rd, result);
 
         if s_bit == 1 {
+            self.update_flags(result);
+        }
+
+        Ok(CpuResult::Continue)
+    }
+
+    /// Execute MUL/MLA instructions.
+    fn execute_multiply(&mut self, instr: u32) -> std::result::Result<CpuResult, CpuError> {
+        let accumulate = ((instr >> 21) & 1) == 1;
+        let set_flags = ((instr >> 20) & 1) == 1;
+        let rd = (instr >> 16) & 0xF;
+        let rn = (instr >> 12) & 0xF;
+        let rs = (instr >> 8) & 0xF;
+        let rm = instr & 0xF;
+
+        let mut result = self.regs.get(rm).wrapping_mul(self.regs.get(rs));
+        if accumulate {
+            result = result.wrapping_add(self.regs.get(rn));
+        }
+
+        self.regs.set(rd, result);
+
+        if set_flags {
             self.update_flags(result);
         }
 
@@ -806,6 +833,24 @@ mod tests {
             .unwrap();
 
         assert_eq!(cpu.regs.r0, 0xFFFFFF80);
+    }
+
+    #[test]
+    fn test_multiply() {
+        let mut cpu = ArmCpu::new().unwrap();
+        let mut memory = Memory::new();
+
+        cpu.regs.r1 = 6;
+        cpu.regs.r2 = 7;
+        cpu.execute_arm_instruction(0xE0010291, &mut memory)
+            .unwrap();
+        assert_eq!(cpu.regs.r1, 42);
+
+        cpu.regs.r1 = 6;
+        cpu.regs.r3 = 5;
+        cpu.execute_arm_instruction(0xE0213291, &mut memory)
+            .unwrap();
+        assert_eq!(cpu.regs.r1, 47);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 // emuIf graphics API implementation
 
-use super::NGameApi;
+use super::{NGameApi, Surface};
 use crate::memory::{Memory, VRAM_BASE};
 
 /// emuIf graphics parameter structure
@@ -111,6 +111,60 @@ impl NGameApi {
         memory.set_register(crate::memory::REG_R0, 0);
     }
 
+    /// MCatchSetColorROP - Set the color raster operation mode.
+    pub fn mcatch_set_color_rop(&mut self, memory: &mut Memory) {
+        self.color_rop = memory.get_register(crate::memory::REG_R0) as u8;
+        log::debug!("MCatchSetColorROP: 0x{:02X}", self.color_rop);
+        memory.set_register(crate::memory::REG_R0, 0);
+    }
+
+    /// MCatchLoadImage - Register an indexed image surface.
+    pub fn mcatch_load_image(&mut self, memory: &mut Memory) {
+        let loadimg_addr = memory.get_register(crate::memory::REG_R0);
+        let imgid_addr = memory.get_register(crate::memory::REG_R1);
+
+        let surface = Surface {
+            data_addr: memory.read_u32(loadimg_addr).unwrap_or(0),
+            width: memory.read_u16(loadimg_addr + 4).unwrap_or(0),
+            height: memory.read_u16(loadimg_addr + 6).unwrap_or(0),
+            img_type: memory.read_u32(loadimg_addr + 8).unwrap_or(0),
+            palette_addr: memory.read_u32(loadimg_addr + 0x10).unwrap_or(0),
+            palette_entries: memory.read_u16(loadimg_addr + 0x14).unwrap_or(0),
+        };
+
+        if surface.data_addr == 0 || surface.width == 0 || surface.height == 0 {
+            log::warn!(
+                "MCatchLoadImage failed: invalid surface at 0x{:08X}",
+                loadimg_addr
+            );
+            memory.set_register(crate::memory::REG_R0, 1);
+            return;
+        }
+
+        let img_id = self.allocate_surface_id();
+        self.surfaces.insert(img_id, surface.clone());
+        let _ = memory.write_u8(imgid_addr, img_id);
+
+        log::debug!(
+            "MCatchLoadImage: id={} {}x{} type={} data=0x{:08X} pal=0x{:08X}/{}",
+            img_id,
+            surface.width,
+            surface.height,
+            surface.img_type,
+            surface.data_addr,
+            surface.palette_addr,
+            surface.palette_entries
+        );
+        memory.set_register(crate::memory::REG_R0, 0);
+    }
+
+    /// MCatchFreeImage - Destroy a surface.
+    pub fn mcatch_free_image(&mut self, memory: &mut Memory) {
+        let img_id = memory.get_register(crate::memory::REG_R0) as u8;
+        self.surfaces.remove(&img_id);
+        memory.set_register(crate::memory::REG_R0, 0);
+    }
+
     /// MCatchGetFrameBuffer - Return the active framebuffer address.
     pub fn mcatch_get_framebuffer(&mut self, memory: &mut Memory) {
         let fb_addr = self.framebuffer_addr.unwrap_or(VRAM_BASE);
@@ -132,6 +186,46 @@ impl NGameApi {
 
         memory.set_register(crate::memory::REG_R0, 0);
     }
+    /// MCatchQueryImage - Query surface state.
+    pub fn mcatch_query_image(&mut self, memory: &mut Memory) {
+        let img_id = memory.get_register(crate::memory::REG_R0) as u8;
+        let query = memory.get_register(crate::memory::REG_R1) as u8;
+        let out = memory.get_register(crate::memory::REG_R2);
+
+        let Some(surface) = self.surfaces.get(&img_id) else {
+            log::debug!("MCatchQueryImage: missing id={} query={}", img_id, query);
+            memory.set_register(crate::memory::REG_R0, 1);
+            return;
+        };
+
+        let value = match query {
+            1 => surface.width,
+            2 => surface.height,
+            3 => surface.img_type as u16,
+            _ => 0,
+        };
+        if out != 0 {
+            let _ = memory.write_u16(out, value);
+        }
+        log::debug!(
+            "MCatchQueryImage: id={} query={} -> {}",
+            img_id,
+            query,
+            value
+        );
+
+        memory.set_register(crate::memory::REG_R0, 0);
+    }
+
+    /// MCatchBitblt - Copy a surface rectangle to the framebuffer.
+    pub fn mcatch_bitblt(&mut self, memory: &mut Memory) {
+        self.blit_surface(memory, false);
+    }
+
+    /// MCatchSprite - Copy a surface rectangle with sprite semantics.
+    pub fn mcatch_sprite(&mut self, memory: &mut Memory) {
+        self.blit_surface(memory, true);
+    }
     /// MCatchFillRect - Fill a rectangle with foreground color
     pub fn mcatch_fill_rect(&mut self, memory: &mut Memory) {
         let rect_addr = memory.get_register(crate::memory::REG_R0);
@@ -144,27 +238,135 @@ impl NGameApi {
 
         log::debug!("MCatchFillRect: ({},{}) {}x{}", x, y, w, h);
 
-        // Fill the rectangle in the framebuffer
-        if let Some(fb_addr) = self.framebuffer_addr {
-            let r = self.fg_color[0];
-            let g = self.fg_color[1];
-            let b = self.fg_color[2];
+        let fb_addr = self.framebuffer_addr.unwrap_or(VRAM_BASE);
+        self.framebuffer_addr = Some(fb_addr);
 
-            // Convert to RGB565
-            let color565 = ((r as u16 & 0xF8) << 8) | ((g as u16 & 0xFC) << 3) | ((b as u16) >> 3);
+        let r = self.fg_color[0];
+        let g = self.fg_color[1];
+        let b = self.fg_color[2];
 
-            for dy in 0..h {
-                for dx in 0..w {
-                    let px = x + dx;
-                    let py = y + dy;
-                    if px < self.framebuffer_width && py < self.framebuffer_height {
-                        let offset = py * self.framebuffer_pitch + px * 2;
-                        let _ = memory.write_u16(fb_addr + offset, color565);
-                    }
+        // Convert to RGB565
+        let color565 = ((r as u16 & 0xF8) << 8) | ((g as u16 & 0xFC) << 3) | ((b as u16) >> 3);
+
+        for dy in 0..h {
+            for dx in 0..w {
+                let px = x + dx;
+                let py = y + dy;
+                if px < self.framebuffer_width && py < self.framebuffer_height {
+                    let offset = py * self.framebuffer_pitch + px * 2;
+                    let _ = memory.write_u16(fb_addr + offset, color565);
                 }
             }
         }
 
         memory.set_register(crate::memory::REG_R0, 0);
+    }
+
+    fn allocate_surface_id(&mut self) -> u8 {
+        for _ in 0..=u8::MAX {
+            let id = self.next_surface_id;
+            self.next_surface_id = self.next_surface_id.wrapping_add(1);
+            if self.next_surface_id == 0 {
+                self.next_surface_id = 1;
+            }
+            if !self.surfaces.contains_key(&id) {
+                return id;
+            }
+        }
+        1
+    }
+
+    fn blit_surface(&mut self, memory: &mut Memory, sprite: bool) {
+        let img_id = memory.get_register(crate::memory::REG_R0) as u8;
+        let rect_addr = memory.get_register(crate::memory::REG_R1);
+        let at_addr = memory.get_register(crate::memory::REG_R2);
+
+        let Some(surface) = self.surfaces.get(&img_id).cloned() else {
+            log::debug!("MCatch blit skipped: missing image id={}", img_id);
+            memory.set_register(crate::memory::REG_R0, 1);
+            return;
+        };
+
+        let src_x = memory.read_u16(rect_addr).unwrap_or(0) as u32;
+        let src_y = memory.read_u16(rect_addr + 2).unwrap_or(0) as u32;
+        let width = memory.read_u16(rect_addr + 4).unwrap_or(0) as u32;
+        let height = memory.read_u16(rect_addr + 6).unwrap_or(0) as u32;
+        let dst_x = memory.read_u16(at_addr).unwrap_or(0) as u32;
+        let dst_y = memory.read_u16(at_addr + 2).unwrap_or(0) as u32;
+
+        log::debug!(
+            "MCatch{}: id={} src=({}, {}) {}x{} dst=({}, {})",
+            if sprite { "Sprite" } else { "Bitblt" },
+            img_id,
+            src_x,
+            src_y,
+            width,
+            height,
+            dst_x,
+            dst_y
+        );
+
+        let fb_addr = self.framebuffer_addr.unwrap_or(VRAM_BASE);
+        self.framebuffer_addr = Some(fb_addr);
+
+        let surface_width = surface.width as u32;
+        let surface_height = surface.height as u32;
+        let copy_w = width.min(surface_width.saturating_sub(src_x));
+        let copy_h = height.min(surface_height.saturating_sub(src_y));
+        let transparent = sprite || self.color_rop == 0xCC;
+
+        for y in 0..copy_h {
+            let py = dst_y + y;
+            if py >= self.framebuffer_height {
+                continue;
+            }
+            for x in 0..copy_w {
+                let px = dst_x + x;
+                if px >= self.framebuffer_width {
+                    continue;
+                }
+
+                let idx = self.read_surface_index(memory, &surface, src_x + x, src_y + y);
+                if transparent && idx == 0 {
+                    continue;
+                }
+                if let Some(color) = self.read_surface_color(memory, &surface, idx) {
+                    let offset = py * self.framebuffer_pitch + px * 2;
+                    let _ = memory.write_u16(fb_addr + offset, color);
+                }
+            }
+        }
+
+        memory.set_register(crate::memory::REG_R0, 0);
+    }
+
+    fn read_surface_index(&self, memory: &Memory, surface: &Surface, x: u32, y: u32) -> u8 {
+        let pixel_index = y * surface.width as u32 + x;
+        match surface.img_type {
+            2 => {
+                let byte = memory
+                    .read_u8(surface.data_addr + pixel_index / 2)
+                    .unwrap_or(0);
+                if pixel_index & 1 == 0 {
+                    byte >> 4
+                } else {
+                    byte & 0x0F
+                }
+            }
+            _ => memory.read_u8(surface.data_addr + pixel_index).unwrap_or(0),
+        }
+    }
+
+    fn read_surface_color(&self, memory: &Memory, surface: &Surface, index: u8) -> Option<u16> {
+        if surface.palette_addr == 0 {
+            let v = index as u16;
+            return Some(((v & 0xF8) << 8) | ((v & 0xFC) << 3) | (v >> 3));
+        }
+        if surface.palette_entries != 0 && index as u16 >= surface.palette_entries {
+            return None;
+        }
+        memory
+            .read_u16(surface.palette_addr + index as u32 * 2)
+            .ok()
     }
 }

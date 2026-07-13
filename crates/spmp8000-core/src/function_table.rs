@@ -34,10 +34,18 @@ pub enum NativeFuncIndex {
     MCatchGetFGColor = 0x48,
     MCatchSetDisplayScreen = 0x54,
     MCatchGetDisplayScreen = 0x58,
+    MCatchSetAlphaBld = 0x74,
+    MCatchGetAlphaBld = 0x78,
+    MCatchEnableFeature = 0x7C,
+    MCatchDisableFeature = 0x80,
+    MCatchSetCameraMode = 0x8C,
     MCatchSetFrameBuffer = 0x90,
     MCatchGetFrameBuffer = 0x94,
+    MCatchQueryImage = 0xA4,
+    MCatchEnableDoubleBuffer = 0xA8,
     MCatchBitblt = 0xB4,
     MCatchSprite = 0xB8,
+    MCatchUpdateScreen = 0xC8,
     MCatchFillRect = 0xC4,
 
     // NativeGE audio
@@ -54,6 +62,7 @@ pub enum NativeFuncIndex {
 
     // NativeGE input
     NativeGEGetKeyInput4Ntv = 0x100,
+    NativeGEShowFPS = 0x108,
 
     // NativeGE timing
     CygThreadDelay = 0x11C,
@@ -122,6 +131,15 @@ impl FunctionTable {
         // When the game calls through the function table, it will execute
         // our SVC instruction, which we intercept.
 
+        let mut trampoline_index = 0;
+        for offset in (0..=NativeFuncIndex::NativeGESPUCommand as u32).step_by(ENTRY_SIZE as usize)
+        {
+            let entry_addr = FUNC_TABLE_BASE + offset;
+            let trampoline_addr = TRAMPOLINE_BASE + trampoline_index * TRAMPOLINE_SIZE;
+            Self::write_svc_trampoline(memory, entry_addr, trampoline_addr, 0x1000 + offset)?;
+            trampoline_index += 1;
+        }
+
         let native_funcs: Vec<(u32, u32)> = vec![
             (NativeFuncIndex::DiagPrintf as u32, 0x01),
             (NativeFuncIndex::MCatchFlush as u32, 0x02),
@@ -140,6 +158,7 @@ impl FunctionTable {
             (NativeFuncIndex::MCatchBitblt as u32, 0x0F),
             (NativeFuncIndex::MCatchSprite as u32, 0x10),
             (NativeFuncIndex::MCatchFillRect as u32, 0x11),
+            (NativeFuncIndex::MCatchQueryImage as u32, 0x10A4),
             (NativeFuncIndex::NativeGEInitRes as u32, 0x12),
             (NativeFuncIndex::NativeGEGetRes as u32, 0x13),
             (NativeFuncIndex::NativeGEPlayRes as u32, 0x14),
@@ -161,7 +180,6 @@ impl FunctionTable {
             (NativeFuncIndex::NativeGESPUCommand as u32, 0x24),
         ];
 
-        let mut trampoline_index = 0;
         for (offset, svc_num) in native_funcs {
             let entry_addr = FUNC_TABLE_BASE + offset;
             let trampoline_addr = TRAMPOLINE_BASE + trampoline_index * TRAMPOLINE_SIZE;
