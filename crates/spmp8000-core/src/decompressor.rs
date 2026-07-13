@@ -486,7 +486,7 @@ mod tests {
     #[test]
     fn test_lz77_basic() {
         // Simple LZ77 test case
-        let _data = vec![
+        let _data = [
             0x01, // flags: bit 0 set
             0x00, 0x33, // reference: offset=0, length=3+3=6
             0x41, 0x42, 0x43, // literal "ABC"
