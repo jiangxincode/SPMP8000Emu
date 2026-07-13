@@ -1,4 +1,13 @@
-# SPMP8000 Emulator
+# SPMP8000 Emulator —— A SPMP8000 game emulator written in Rust
+
+<p align="center">
+  <a href="https://jiangxincode.github.io/SPMP8000Emu/"><img src="https://img.shields.io/badge/Website-SPMP8000Emu-E8553A?logo=githubpages&logoColor=white" alt="Website"></a>
+  <a href="https://github.com/jiangxincode/SPMP8000Emu/actions/workflows/ci.yml"><img src="https://github.com/jiangxincode/SPMP8000Emu/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/jiangxincode/SPMP8000Emu/releases/latest"><img src="https://img.shields.io/github/v/release/jiangxincode/SPMP8000Emu" alt="Release"></a>
+  <a href="https://github.com/jiangxincode/SPMP8000Emu/releases"><img src="https://img.shields.io/github/downloads/jiangxincode/SPMP8000Emu/total" alt="Downloads"></a>
+  <a href="https://sonarcloud.io/dashboard?id=jiangxincode_SPMP8000Emu"><img src="https://sonarcloud.io/api/project_badges/measure?project=jiangxincode_SPMP8000Emu&metric=alert_status" alt="Quality Gate Status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-BSD%203--Clause-blue.svg" alt="License: BSD 3-Clause"></a>
+</p>
 
 A SPMP8000 game emulator written in Rust, supporting both standalone mode and RetroArch integration.
 
