@@ -143,12 +143,12 @@ impl NGameApi {
             0x06 => self.mcatch_init_graph(memory),
             0x07 => self.return_success(memory), // MCatchSetColorROP
             0x08 => self.return_success(memory), // MCatchGetColorROP
-            0x09 => self.return_success(memory), // MCatchSetFGColor
+            0x09 => self.mcatch_set_fg_color(memory),
             0x0A => self.return_success(memory), // MCatchGetFGColor
             0x0B => self.return_success(memory), // MCatchSetDisplayScreen
             0x0C => self.return_success(memory), // MCatchGetDisplayScreen
             0x0D => self.mcatch_set_framebuffer(memory),
-            0x0E => self.return_success(memory), // MCatchGetFrameBuffer
+            0x0E => self.mcatch_get_framebuffer(memory),
             0x0F => self.return_success(memory), // MCatchBitblt
             0x10 => self.return_success(memory), // MCatchSprite
             0x11 => self.mcatch_fill_rect(memory),

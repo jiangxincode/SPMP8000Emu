@@ -2,6 +2,8 @@
 //
 // Converts the emulator's framebuffer (RGB565) to XRGB8888 for display
 
+use std::path::Path;
+
 use crate::memory::Memory;
 
 /// Framebuffer format
@@ -120,6 +122,27 @@ impl Renderer {
         self.framebuffer.resize(fb_size, 0);
     }
 
+    /// Save the current framebuffer as a PNG image.
+    pub fn save_screenshot(&self, path: &Path) -> anyhow::Result<()> {
+        let mut img = image::RgbaImage::new(self.width, self.height);
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let offset = ((y * self.width + x) * 4) as usize;
+                img.put_pixel(
+                    x,
+                    y,
+                    image::Rgba([
+                        self.framebuffer[offset],
+                        self.framebuffer[offset + 1],
+                        self.framebuffer[offset + 2],
+                        self.framebuffer[offset + 3],
+                    ]),
+                );
+            }
+        }
+        img.save(path)?;
+        Ok(())
+    }
     /// Fill a rectangle with a color (for debugging/testing)
     #[allow(clippy::too_many_arguments)]
     pub fn fill_rect(&mut self, x: u32, y: u32, w: u32, h: u32, r: u8, g: u8, b: u8) {
@@ -176,13 +199,25 @@ mod tests {
     }
 
     #[test]
+    fn test_save_screenshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("shot.png");
+        let mut renderer = Renderer::new(2, 2);
+        renderer.fill_rect(0, 0, 1, 1, 255, 0, 0);
+
+        renderer.save_screenshot(&path).unwrap();
+
+        assert!(path.exists());
+        assert!(std::fs::metadata(path).unwrap().len() > 0);
+    }
+    #[test]
     fn test_fill_rect() {
         let mut renderer = Renderer::new(4, 4);
         renderer.fill_rect(1, 1, 2, 2, 255, 0, 0);
 
         let fb = renderer.get_framebuffer();
         // Check pixel at (1,1)
-        let offset = (1 * 4 + 1) * 4;
+        let offset = 20; // (1 * 4 + 1) * 4
         assert_eq!(fb[offset], 255); // R
         assert_eq!(fb[offset + 1], 0); // G
         assert_eq!(fb[offset + 2], 0); // B

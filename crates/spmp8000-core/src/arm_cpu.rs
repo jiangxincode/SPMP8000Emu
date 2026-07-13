@@ -185,6 +185,51 @@ impl ArmCpu {
             self.regs.get(reg)
         }
     }
+
+    fn shifted_register_operand(&self, instr: u32) -> u32 {
+        let rm = instr & 0xF;
+        let value = self.read_operand_register(rm);
+        let shift_type = (instr >> 5) & 0x3;
+        let shift_amount = if (instr >> 4) & 1 == 1 {
+            let rs = (instr >> 8) & 0xF;
+            self.read_operand_register(rs) & 0xFF
+        } else {
+            (instr >> 7) & 0x1F
+        };
+
+        match shift_type {
+            0x0 => value.wrapping_shl(shift_amount.min(31)),
+            0x1 => {
+                let amount = if shift_amount == 0 { 32 } else { shift_amount };
+                if amount >= 32 {
+                    0
+                } else {
+                    value >> amount
+                }
+            }
+            0x2 => {
+                let amount = if shift_amount == 0 { 32 } else { shift_amount };
+                if amount >= 32 {
+                    if value & 0x8000_0000 != 0 {
+                        u32::MAX
+                    } else {
+                        0
+                    }
+                } else {
+                    ((value as i32) >> amount) as u32
+                }
+            }
+            0x3 => {
+                if shift_amount == 0 {
+                    let carry = (self.regs.cpsr >> 29) & 1;
+                    (value >> 1) | (carry << 31)
+                } else {
+                    value.rotate_right(shift_amount)
+                }
+            }
+            _ => value,
+        }
+    }
     /// Set the program counter
     pub fn set_pc(&mut self, addr: u32) -> Result<()> {
         self.regs.pc = addr;
@@ -247,6 +292,10 @@ impl ArmCpu {
             return self.execute_branch_exchange(instr);
         }
 
+        if (instr & 0x0E000090) == 0x00000090 && ((instr >> 5) & 0x3) != 0 {
+            return self.execute_halfword_transfer(instr, memory);
+        }
+
         // Decode instruction type
         let opcode = (instr >> 24) & 0xF;
         let _i_bit = (instr >> 25) & 1;
@@ -295,9 +344,7 @@ impl ArmCpu {
             let rotate = ((instr >> 8) & 0xF) * 2;
             imm.rotate_right(rotate)
         } else {
-            // Register operand
-            let rm = instr & 0xF;
-            self.read_operand_register(rm)
+            self.shifted_register_operand(instr)
         };
 
         let result = match opcode {
@@ -320,6 +367,24 @@ impl ArmCpu {
             0x4 => {
                 // ADD
                 rn_val.wrapping_add(operand2)
+            }
+            0x5 => {
+                // ADC
+                rn_val
+                    .wrapping_add(operand2)
+                    .wrapping_add((self.regs.cpsr >> 29) & 1)
+            }
+            0x6 => {
+                // SBC
+                rn_val
+                    .wrapping_sub(operand2)
+                    .wrapping_sub(1 - ((self.regs.cpsr >> 29) & 1))
+            }
+            0x7 => {
+                // RSC
+                operand2
+                    .wrapping_sub(rn_val)
+                    .wrapping_sub(1 - ((self.regs.cpsr >> 29) & 1))
             }
             0x8 => {
                 // TST (test, no write)
@@ -383,6 +448,80 @@ impl ArmCpu {
         Ok(CpuResult::Continue)
     }
 
+    /// Execute halfword and signed byte/halfword transfer instructions.
+    fn execute_halfword_transfer(
+        &mut self,
+        instr: u32,
+        memory: &mut Memory,
+    ) -> std::result::Result<CpuResult, CpuError> {
+        let p_bit = (instr >> 24) & 1;
+        let u_bit = (instr >> 23) & 1;
+        let i_bit = (instr >> 22) & 1;
+        let w_bit = (instr >> 21) & 1;
+        let l_bit = (instr >> 20) & 1;
+        let rn = (instr >> 16) & 0xF;
+        let rd = (instr >> 12) & 0xF;
+        let op = (instr >> 5) & 0x3;
+
+        let base = self.read_operand_register(rn);
+        let offset = if i_bit == 1 {
+            ((instr >> 4) & 0xF0) | (instr & 0xF)
+        } else {
+            self.read_operand_register(instr & 0xF)
+        };
+
+        let addr = if p_bit == 1 {
+            if u_bit == 1 {
+                base.wrapping_add(offset)
+            } else {
+                base.wrapping_sub(offset)
+            }
+        } else {
+            base
+        };
+
+        if l_bit == 1 {
+            let value = match op {
+                0x1 => memory
+                    .read_u16(addr)
+                    .map_err(|e| CpuError::MemoryError(e.to_string()))?
+                    as u32,
+                0x2 => {
+                    let value = memory
+                        .read_u8(addr)
+                        .map_err(|e| CpuError::MemoryError(e.to_string()))?;
+                    (value as i8 as i32) as u32
+                }
+                0x3 => {
+                    let value = memory
+                        .read_u16(addr)
+                        .map_err(|e| CpuError::MemoryError(e.to_string()))?;
+                    (value as i16 as i32) as u32
+                }
+                _ => return Err(CpuError::InvalidInstruction(instr)),
+            };
+            self.regs.set(rd, value);
+        } else if op == 0x1 {
+            let value = self.regs.get(rd) as u16;
+            memory
+                .write_u16(addr, value)
+                .map_err(|e| CpuError::MemoryError(e.to_string()))?;
+        } else {
+            return Err(CpuError::InvalidInstruction(instr));
+        }
+
+        if p_bit == 0 || w_bit == 1 {
+            let writeback = if u_bit == 1 {
+                base.wrapping_add(offset)
+            } else {
+                base.wrapping_sub(offset)
+            };
+            self.regs.set(rn, writeback);
+        }
+
+        Ok(CpuResult::Continue)
+    }
+
     /// Execute load/store instruction
     fn execute_load_store(
         &mut self,
@@ -405,9 +544,7 @@ impl ArmCpu {
             // Immediate offset
             instr & 0xFFF
         } else {
-            // Register offset
-            let rm = instr & 0xF;
-            self.read_operand_register(rm)
+            self.shifted_register_operand(instr)
         };
 
         // Calculate address
@@ -638,6 +775,37 @@ mod tests {
 
         cpu.set_sp(0x2000).unwrap();
         assert_eq!(cpu.get_register(13).unwrap(), 0x2000);
+    }
+
+    #[test]
+    fn test_shifted_register_operand() {
+        let mut cpu = ArmCpu::new().unwrap();
+        let mut memory = Memory::new();
+        memory
+            .map_region(0x0, 0x1000, crate::memory::Permission::ALL, "test")
+            .unwrap();
+
+        cpu.regs.r1 = 3;
+        cpu.execute_arm_instruction(0xE1A00081, &mut memory)
+            .unwrap();
+
+        assert_eq!(cpu.regs.r0, 6);
+    }
+
+    #[test]
+    fn test_ldrsh_immediate_offset() {
+        let mut cpu = ArmCpu::new().unwrap();
+        let mut memory = Memory::new();
+        memory
+            .map_region(0x0, 0x2000, crate::memory::Permission::ALL, "test")
+            .unwrap();
+
+        cpu.regs.r5 = 0x1000;
+        memory.write_u16(0x100A, 0xFF80).unwrap();
+        cpu.execute_arm_instruction(0xE1D500FA, &mut memory)
+            .unwrap();
+
+        assert_eq!(cpu.regs.r0, 0xFFFFFF80);
     }
 
     #[test]

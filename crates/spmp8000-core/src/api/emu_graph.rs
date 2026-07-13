@@ -1,7 +1,7 @@
 // emuIf graphics API implementation
 
 use super::NGameApi;
-use crate::memory::Memory;
+use crate::memory::{Memory, VRAM_BASE};
 
 /// emuIf graphics parameter structure
 #[repr(C)]
@@ -83,9 +83,40 @@ impl NGameApi {
     /// MCatchInitGraph - Initialize MCatch graphics
     pub fn mcatch_init_graph(&mut self, memory: &mut Memory) {
         log::info!("MCatchInitGraph");
+        self.framebuffer_addr = Some(VRAM_BASE);
+        self.framebuffer_width = 320;
+        self.framebuffer_height = 240;
+        self.framebuffer_pitch = self.framebuffer_width * 2;
         memory.set_register(crate::memory::REG_R0, 0);
     }
 
+    /// MCatchSetFGColor - Set foreground drawing color.
+    pub fn mcatch_set_fg_color(&mut self, memory: &mut Memory) {
+        let color_arg = memory.get_register(crate::memory::REG_R0);
+
+        if let (Ok(r), Ok(g), Ok(b)) = (
+            memory.read_u8(color_arg),
+            memory.read_u8(color_arg + 1),
+            memory.read_u8(color_arg + 2),
+        ) {
+            self.fg_color = [r, g, b];
+        } else {
+            self.fg_color = [
+                ((color_arg >> 16) & 0xFF) as u8,
+                ((color_arg >> 8) & 0xFF) as u8,
+                (color_arg & 0xFF) as u8,
+            ];
+        }
+
+        memory.set_register(crate::memory::REG_R0, 0);
+    }
+
+    /// MCatchGetFrameBuffer - Return the active framebuffer address.
+    pub fn mcatch_get_framebuffer(&mut self, memory: &mut Memory) {
+        let fb_addr = self.framebuffer_addr.unwrap_or(VRAM_BASE);
+        self.framebuffer_addr = Some(fb_addr);
+        memory.set_register(crate::memory::REG_R0, fb_addr);
+    }
     /// MCatchSetFrameBuffer - Set framebuffer dimensions
     pub fn mcatch_set_framebuffer(&mut self, memory: &mut Memory) {
         let width = memory.get_register(crate::memory::REG_R0);
@@ -101,7 +132,6 @@ impl NGameApi {
 
         memory.set_register(crate::memory::REG_R0, 0);
     }
-
     /// MCatchFillRect - Fill a rectangle with foreground color
     pub fn mcatch_fill_rect(&mut self, memory: &mut Memory) {
         let rect_addr = memory.get_register(crate::memory::REG_R0);

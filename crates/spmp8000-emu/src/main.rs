@@ -39,6 +39,14 @@ struct Cli {
     /// Number of frames to run in headless mode
     #[arg(long, default_value = "60")]
     frames: u32,
+
+    /// Take a screenshot after N frames and exit (saves as PNG)
+    #[arg(short = 'S', long = "screenshot", value_name = "PATH")]
+    screenshot: Option<std::path::PathBuf>,
+
+    /// Number of frames to run before taking screenshot
+    #[arg(long = "screenshot-frames", default_value = "30")]
+    screenshot_frames: u32,
 }
 
 fn main() -> Result<()> {
@@ -73,15 +81,26 @@ fn main() -> Result<()> {
         display_height
     );
 
-    if cli.headless {
+    if cli.headless || cli.screenshot.is_some() {
         emu.start();
-        for frame in 0..cli.frames {
+        let frames = cli
+            .screenshot
+            .as_ref()
+            .map_or(cli.frames, |_| cli.screenshot_frames);
+        for frame in 0..frames {
             emu.tick();
             if !emu.is_running() && !emu.should_exit() {
                 anyhow::bail!("Emulation stopped before frame {}", frame + 1);
             }
         }
-        log::info!("Headless run completed: {} frames", cli.frames);
+        if let Some(path) = &cli.screenshot {
+            emu.renderer
+                .save_screenshot(path)
+                .context("Failed to save screenshot")?;
+            log::info!("Screenshot saved to: {}", path.display());
+        } else {
+            log::info!("Headless run completed: {} frames", frames);
+        }
         return Ok(());
     }
 
@@ -106,6 +125,7 @@ fn main() -> Result<()> {
 
     // Main loop
     let frame_duration = Duration::from_secs_f64(1.0 / 30.0);
+    let mut frame_count = 0u32;
 
     while window.is_open() && !window.is_key_down(Key::Escape) && !emu.should_exit() {
         let start = Instant::now();
@@ -157,6 +177,17 @@ fn main() -> Result<()> {
         window
             .update_with_buffer(&buffer, width as usize, height as usize)
             .context("Failed to update window")?;
+
+        frame_count += 1;
+        if let Some(path) = &cli.screenshot {
+            if frame_count >= cli.screenshot_frames {
+                emu.renderer
+                    .save_screenshot(path)
+                    .context("Failed to save screenshot")?;
+                log::info!("Screenshot saved to: {}", path.display());
+                break;
+            }
+        }
 
         // Frame rate control
         let elapsed = start.elapsed();

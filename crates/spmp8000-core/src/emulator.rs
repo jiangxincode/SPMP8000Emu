@@ -186,6 +186,31 @@ impl Emulator {
                 Err(e) => {
                     let pc = self.cpu.get_pc().unwrap_or(0);
                     log::error!("CPU error at PC=0x{:08X}: {:?}", pc, e);
+                    log::error!(
+                        "regs: r0=0x{:08X} r1=0x{:08X} r2=0x{:08X} r3=0x{:08X} r4=0x{:08X} r5=0x{:08X} r6=0x{:08X} r7=0x{:08X} r8=0x{:08X} r9=0x{:08X} r10=0x{:08X} r11=0x{:08X} r12=0x{:08X} sp=0x{:08X} lr=0x{:08X}",
+                        self.cpu.regs.r0,
+                        self.cpu.regs.r1,
+                        self.cpu.regs.r2,
+                        self.cpu.regs.r3,
+                        self.cpu.regs.r4,
+                        self.cpu.regs.r5,
+                        self.cpu.regs.r6,
+                        self.cpu.regs.r7,
+                        self.cpu.regs.r8,
+                        self.cpu.regs.r9,
+                        self.cpu.regs.r10,
+                        self.cpu.regs.r11,
+                        self.cpu.regs.r12,
+                        self.cpu.regs.sp,
+                        self.cpu.regs.lr
+                    );
+                    for addr in pc.saturating_sub(16)..pc.saturating_add(16) {
+                        if addr % 4 == 0 {
+                            if let Ok(instr) = self.memory.read_u32(addr) {
+                                log::error!("code 0x{:08X}: 0x{:08X}", addr, instr);
+                            }
+                        }
+                    }
                     self.is_running = false;
                     break;
                 }

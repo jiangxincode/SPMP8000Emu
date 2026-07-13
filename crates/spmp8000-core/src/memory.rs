@@ -94,9 +94,11 @@ pub const CODE_LOAD_ADDR: u32 = 0x00A00000;
 pub const RAM_BASE: u32 = 0x00000000;
 pub const RAM_SIZE: u32 = 16 * 1024 * 1024; // 16MB
 pub const VRAM_BASE: u32 = 0x01000000;
-pub const VRAM_SIZE: u32 = 1024 * 1024; // 1MB
+pub const VRAM_SIZE: u32 = 16 * 1024 * 1024; // 16MB
 pub const FUNC_TABLE_BASE: u32 = 0x00100000;
 pub const FUNC_TABLE_SIZE: u32 = 4096; // 4KB for function table
+pub const PERIPHERAL_BASE: u32 = 0x02000000;
+pub const PERIPHERAL_SIZE: u32 = 16 * 1024 * 1024; // 16MB
 pub const KEY_STATE_ADDR: u32 = 0x00200000; // Address for key state
 
 impl Memory {
@@ -119,6 +121,14 @@ impl Memory {
             VRAM_SIZE,
             Permission::READ | Permission::WRITE,
             "VRAM",
+        )?;
+
+        // Memory-mapped peripheral registers.
+        self.map_region(
+            PERIPHERAL_BASE,
+            PERIPHERAL_SIZE,
+            Permission::READ | Permission::WRITE,
+            "PERIPHERAL",
         )?;
 
         Ok(())
