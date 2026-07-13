@@ -109,11 +109,11 @@ pub fn parse_header(data: &[u8]) -> Result<NGameHeader> {
     // Verify magic
     let mut magic = [0u8; 8];
     magic.copy_from_slice(&data[OFFSET_MAGIC..OFFSET_MAGIC + 8]);
-    if &magic != NGAME_MAGIC {
+    if magic != *NGAME_MAGIC {
         anyhow::bail!(
             "Invalid magic bytes: expected {:?}, got {:?}",
             NGAME_MAGIC,
-            &magic
+            magic
         );
     }
 
