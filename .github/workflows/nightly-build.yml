@@ -139,9 +139,214 @@ jobs:
             ${{ matrix.artifact }}-libretro.*
           retention-days: 7
 
+  build-android:
+    name: Build (Android)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Compute version metadata
+        id: ver
+        shell: bash
+        run: |
+          echo "DATE=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          echo "SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Cache Rust artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          key: nightly-android
+
+      - name: Build libretro core for Android
+        run: |
+          cargo ndk \
+            -t arm64-v8a -t armeabi-v7a -t x86 -t x86_64 \
+            --platform 21 \
+            build -p spmp8000-libretro --release
+
+      - name: Stage libretro core
+        shell: bash
+        run: |
+          out="libretro/spmp8000-emu-android"
+          mkdir -p "$out/arm64-v8a" "$out/armeabi-v7a" "$out/x86" "$out/x86_64"
+          cp target/aarch64-linux-android/release/libspmp8000.so "$out/arm64-v8a/spmp8000_libretro_android.so"
+          cp target/armv7-linux-androideabi/release/libspmp8000.so "$out/armeabi-v7a/spmp8000_libretro_android.so"
+          cp target/i686-linux-android/release/libspmp8000.so "$out/x86/spmp8000_libretro_android.so"
+          cp target/x86_64-linux-android/release/libspmp8000.so "$out/x86_64/spmp8000_libretro_android.so"
+          cp crates/spmp8000-libretro/spmp8000_libretro.info "$out/"
+          ls -laR "$out"
+
+      - name: Package libretro
+        shell: bash
+        run: |
+          cd libretro
+          tar czf ../spmp8000-emu-android-libretro.tar.gz spmp8000-emu-android
+          cd ..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: spmp8000-emu-android
+          path: spmp8000-emu-android-libretro.tar.gz
+          retention-days: 7
+
+  build-ios:
+    name: Build (iOS)
+    runs-on: macos-latest
+
+    steps:
+      - name: Compute version metadata
+        id: ver
+        shell: bash
+        run: |
+          echo "DATE=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          echo "SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,x86_64-apple-ios,aarch64-apple-ios-sim
+
+      - name: Cache Rust artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          key: nightly-ios
+
+      - name: Build libretro core (arm64 device)
+        run: cargo build -p spmp8000-libretro --release --target aarch64-apple-ios
+
+      - name: Build libretro core (x86_64 device)
+        run: cargo build -p spmp8000-libretro --release --target x86_64-apple-ios
+
+      - name: Build libretro core (arm64 simulator)
+        run: cargo build -p spmp8000-libretro --release --target aarch64-apple-ios-sim
+
+      - name: Create universal binary and stage
+        shell: bash
+        run: |
+          out="libretro/spmp8000-emu-ios"
+          mkdir -p "$out/simulator"
+          # Universal binary for real devices (arm64 + x86_64)
+          lipo -create \
+            target/aarch64-apple-ios/release/libspmp8000.dylib \
+            target/x86_64-apple-ios/release/libspmp8000.dylib \
+            -output "$out/spmp8000_libretro_ios.dylib"
+          # Simulator binary (arm64 only)
+          cp target/aarch64-apple-ios-sim/release/libspmp8000.dylib \
+             "$out/simulator/spmp8000_libretro_ios.dylib"
+          cp crates/spmp8000-libretro/spmp8000_libretro.info "$out/"
+          ls -laR "$out"
+
+      - name: Package libretro
+        shell: bash
+        run: |
+          cd libretro
+          tar czf ../spmp8000-emu-ios-libretro.tar.gz spmp8000-emu-ios
+          cd ..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: spmp8000-emu-ios
+          path: spmp8000-emu-ios-libretro.tar.gz
+          retention-days: 7
+
+  build-webos:
+    name: Build (webOS)
+    runs-on: ubuntu-22.04
+    env:
+      WEBOS_TOOLCHAIN_URL: https://github.com/openlgtv/buildroot-nc4/releases/latest/download/arm-webos-linux-gnueabi_sdk-buildroot-x86_64.tar.gz
+      RUST_TARGET: armv7-unknown-linux-gnueabi
+
+    steps:
+      - name: Compute version metadata
+        id: ver
+        shell: bash
+        run: |
+          echo "DATE=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          echo "SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.RUST_TARGET }}
+
+      - name: Install webOS toolchain
+        shell: bash
+        run: |
+          curl -L "$WEBOS_TOOLCHAIN_URL" -o "$RUNNER_TEMP/webos-toolchain.tar.gz"
+          mkdir -p "$RUNNER_TEMP/webos-toolchain"
+          tar xf "$RUNNER_TEMP/webos-toolchain.tar.gz" \
+            -C "$RUNNER_TEMP/webos-toolchain" --strip-components=1
+          cd "$RUNNER_TEMP/webos-toolchain"
+          ./relocate-sdk.sh
+          echo "$RUNNER_TEMP/webos-toolchain/bin" >> "$GITHUB_PATH"
+
+      - name: Cache Rust artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          key: nightly-webos
+
+      - name: Build libretro core
+        env:
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABI_LINKER: arm-webos-linux-gnueabi-gcc
+          CC_armv7_unknown_linux_gnueabi: arm-webos-linux-gnueabi-gcc
+          AR_armv7_unknown_linux_gnueabi: arm-webos-linux-gnueabi-ar
+        run: cargo build -p spmp8000-libretro --release --target ${{ env.RUST_TARGET }}
+
+      - name: Verify ELF binary
+        shell: bash
+        run: |
+          arm-webos-linux-gnueabi-readelf -h target/${{ env.RUST_TARGET }}/release/libspmp8000.so
+          arm-webos-linux-gnueabi-readelf -d target/${{ env.RUST_TARGET }}/release/libspmp8000.so
+
+      - name: Stage libretro core
+        shell: bash
+        run: |
+          out="libretro/spmp8000-emu-webos"
+          mkdir -p "$out"
+          cp target/${{ env.RUST_TARGET }}/release/libspmp8000.so "$out/spmp8000_libretro.so"
+          cp crates/spmp8000-libretro/spmp8000_libretro.info "$out/"
+          ls -laR "$out"
+
+      - name: Package libretro
+        shell: bash
+        run: |
+          cd libretro
+          tar czf ../spmp8000-emu-webos-libretro.tar.gz spmp8000-emu-webos
+          cd ..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: spmp8000-emu-webos
+          path: spmp8000-emu-webos-libretro.tar.gz
+          retention-days: 7
+
   release:
     name: Publish Nightly Release
-    needs: [build]
+    needs: [build, build-android, build-ios, build-webos]
     runs-on: ubuntu-latest
     steps:
       - name: Compute version metadata
@@ -185,7 +390,7 @@ jobs:
 
           - Built: $DATETIME
           - Commit: [\`$SHORT_SHA\`](https://github.com/$REPO/commit/${{ github.sha }})
-          - Platforms: Windows x86_64, macOS x86_64/aarch64, Linux x86_64/aarch64
+          - Platforms: Windows x86_64, macOS x86_64/aarch64, Linux x86_64/aarch64, Android (arm64-v8a/armeabi-v7a/x86/x86_64), iOS (arm64/x86_64/simulator), webOS (armv7)
           - Includes the standalone emulator and the libretro core (\`*-libretro.*\`) for RetroArch
 
           ⚠️ Unsigned build: Windows SmartScreen / macOS Gatekeeper may block on first launch.

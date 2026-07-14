@@ -29,6 +29,20 @@ SPMP8000 is a Sunplus multimedia SoC commonly found in portable gaming devices. 
 - **Input handling** - Keyboard input with configurable mappings
 - **RetroArch integration** - libretro core for RetroArch frontend
 - **Standalone mode** - minifb window with CLI
+- **Cross-platform** - Windows, macOS, Linux, Android, iOS, webOS
+
+## Supported Platforms
+
+| Platform | Architecture | Standalone | Libretro |
+|----------|-------------|------------|----------|
+| Windows | x86_64 | ✅ | ✅ |
+| macOS | x86_64, aarch64 | ✅ | ✅ |
+| Linux | x86_64, aarch64 | ✅ | ✅ |
+| Android | arm64-v8a, armeabi-v7a, x86, x86_64 | — | ✅ |
+| iOS | arm64, x86_64, arm64-simulator | — | ✅ |
+| webOS | armv7 | — | ✅ |
+
+> Android, iOS, and webOS are supported through the libretro core only (use with RetroArch).
 
 ## Building
 
