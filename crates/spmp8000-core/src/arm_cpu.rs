@@ -446,7 +446,24 @@ impl ArmCpu {
         self.regs.set(rd, result);
 
         if s_bit == 1 {
-            self.update_flags(result);
+            match opcode {
+                0x2 => self.update_flags_cmp(rn_val, operand2, result),
+                0x3 => self.update_flags_cmp(operand2, rn_val, result),
+                0x4 => self.update_flags_add(rn_val, operand2, result),
+                0x5 => {
+                    let carry = (self.regs.cpsr >> 29) & 1;
+                    self.update_flags_add_with_carry(rn_val, operand2, carry, result);
+                }
+                0x6 => {
+                    let borrow = 1 - ((self.regs.cpsr >> 29) & 1);
+                    self.update_flags_sub_with_borrow(rn_val, operand2, borrow, result);
+                }
+                0x7 => {
+                    let borrow = 1 - ((self.regs.cpsr >> 29) & 1);
+                    self.update_flags_sub_with_borrow(operand2, rn_val, borrow, result);
+                }
+                _ => self.update_flags(result),
+            }
         }
 
         Ok(CpuResult::Continue)
@@ -729,6 +746,41 @@ impl ArmCpu {
         Ok(CpuResult::Continue)
     }
 
+    fn update_flags_add_with_carry(&mut self, lhs: u32, rhs: u32, carry: u32, result: u32) {
+        let z = if result == 0 { 1 } else { 0 };
+        let n = (result >> 31) & 1;
+        let c = if lhs as u64 + rhs as u64 + carry as u64 > 0xFFFFFFFF {
+            1
+        } else {
+            0
+        };
+        let signed_sum = lhs as i32 as i64 + rhs as i32 as i64 + carry as i64;
+        let v = if signed_sum < i32::MIN as i64 || signed_sum > i32::MAX as i64 {
+            1
+        } else {
+            0
+        };
+        self.regs.cpsr =
+            (self.regs.cpsr & !0xF0000000) | (n << 31) | (z << 30) | (c << 29) | (v << 28);
+    }
+
+    fn update_flags_sub_with_borrow(&mut self, lhs: u32, rhs: u32, borrow: u32, result: u32) {
+        let z = if result == 0 { 1 } else { 0 };
+        let n = (result >> 31) & 1;
+        let c = if lhs as u64 >= rhs as u64 + borrow as u64 {
+            1
+        } else {
+            0
+        };
+        let signed_diff = lhs as i32 as i64 - rhs as i32 as i64 - borrow as i64;
+        let v = if signed_diff < i32::MIN as i64 || signed_diff > i32::MAX as i64 {
+            1
+        } else {
+            0
+        };
+        self.regs.cpsr =
+            (self.regs.cpsr & !0xF0000000) | (n << 31) | (z << 30) | (c << 29) | (v << 28);
+    }
     /// Update flags for general result
     fn update_flags(&mut self, result: u32) {
         let z = if result == 0 { 1 } else { 0 };
@@ -835,6 +887,23 @@ mod tests {
         assert_eq!(cpu.regs.r0, 0xFFFFFF80);
     }
 
+    #[test]
+    fn test_subs_updates_carry_flag() {
+        let mut cpu = ArmCpu::new().unwrap();
+        let mut memory = Memory::new();
+
+        cpu.regs.r1 = 15;
+        cpu.execute_arm_instruction(0xE2512001, &mut memory)
+            .unwrap();
+        assert_eq!(cpu.regs.r2, 14);
+        assert_eq!((cpu.regs.cpsr >> 29) & 1, 1);
+
+        cpu.regs.r1 = 0;
+        cpu.execute_arm_instruction(0xE2512001, &mut memory)
+            .unwrap();
+        assert_eq!(cpu.regs.r2, u32::MAX);
+        assert_eq!((cpu.regs.cpsr >> 29) & 1, 0);
+    }
     #[test]
     fn test_multiply() {
         let mut cpu = ArmCpu::new().unwrap();

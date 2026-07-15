@@ -151,7 +151,7 @@ impl Emulator {
     /// Set button state from external input
     pub fn set_buttons(&mut self, buttons: u32) {
         self.input.set_buttons(buttons);
-        self.api.set_key_state(buttons);
+        self.api.translate_buttons(buttons);
     }
 
     /// Execute one frame (30fps)
