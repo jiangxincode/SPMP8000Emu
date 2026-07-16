@@ -74,7 +74,7 @@ impl NGameApi {
     pub fn emu_if_key_get_input(&mut self, memory: &mut Memory) {
         // Return raw key state bitmap
         // The game uses the key map to interpret this
-        memory.set_register(crate::memory::REG_R0, self.key_state);
+        memory.set_register(crate::memory::REG_R0, self.raw_key_state);
     }
 
     /// emuIfKeyCleanup - Cleanup input subsystem
@@ -96,6 +96,7 @@ impl NGameApi {
 
     /// Translate button state to NativeGE key format
     pub fn translate_buttons(&mut self, buttons: u32) {
+        self.raw_key_state = buttons;
         let mut key_state = 0u32;
 
         // Map button bits to NativeGE key bits
@@ -122,5 +123,30 @@ impl NGameApi {
         }
 
         self.key_state = key_state;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory::Permission;
+
+    #[test]
+    fn test_key_formats_are_kept_separate() {
+        let mut api = NGameApi::new();
+        let mut memory = Memory::new();
+        memory
+            .map_region(0x1000, 0x100, Permission::ALL, "test")
+            .unwrap();
+
+        let buttons = (1 << EMU_KEY_O) | (1 << EMU_KEY_START);
+        api.translate_buttons(buttons);
+
+        api.emu_if_key_get_input(&mut memory);
+        assert_eq!(memory.get_register(crate::memory::REG_R0), 0x0810);
+
+        memory.set_register(crate::memory::REG_R0, 0x1000);
+        api.native_ge_get_key_input(&mut memory);
+        assert_eq!(memory.read_u32(0x1004).unwrap(), GE_KEY_O | GE_KEY_START);
     }
 }

@@ -167,6 +167,12 @@ pub struct ArmCpu {
     pub instruction_count: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ShiftedOperand {
+    value: u32,
+    carry_out: Option<u32>,
+}
+
 impl ArmCpu {
     /// Create a new ARM CPU
     pub fn new() -> Result<Self> {
@@ -187,49 +193,121 @@ impl ArmCpu {
     }
 
     fn shifted_register_operand(&self, instr: u32) -> u32 {
+        self.shifted_register_operand_with_carry(instr).value
+    }
+
+    fn data_processing_operand2(&self, instr: u32) -> ShiftedOperand {
+        if (instr >> 25) & 1 == 1 {
+            let imm = instr & 0xFF;
+            let rotate = ((instr >> 8) & 0xF) * 2;
+            let value = imm.rotate_right(rotate);
+            ShiftedOperand {
+                value,
+                carry_out: if rotate == 0 {
+                    None
+                } else {
+                    Some((value >> 31) & 1)
+                },
+            }
+        } else {
+            self.shifted_register_operand_with_carry(instr)
+        }
+    }
+
+    fn shifted_register_operand_with_carry(&self, instr: u32) -> ShiftedOperand {
         let rm = instr & 0xF;
         let value = self.read_operand_register(rm);
         let shift_type = (instr >> 5) & 0x3;
-        let shift_amount = if (instr >> 4) & 1 == 1 {
+        let register_shift = (instr >> 4) & 1 == 1;
+        let shift_amount = if register_shift {
             let rs = (instr >> 8) & 0xF;
             self.read_operand_register(rs) & 0xFF
         } else {
             (instr >> 7) & 0x1F
         };
 
-        match shift_type {
-            0x0 => value.wrapping_shl(shift_amount.min(31)),
-            0x1 => {
-                let amount = if shift_amount == 0 { 32 } else { shift_amount };
-                if amount >= 32 {
-                    0
+        let old_carry = (self.regs.cpsr >> 29) & 1;
+        let unchanged = ShiftedOperand {
+            value,
+            carry_out: None,
+        };
+
+        match (shift_type, register_shift, shift_amount) {
+            (0x0, _, 0) => unchanged,
+            (0x0, _, amount @ 1..=31) => ShiftedOperand {
+                value: value << amount,
+                carry_out: Some((value >> (32 - amount)) & 1),
+            },
+            (0x0, true, 32) => ShiftedOperand {
+                value: 0,
+                carry_out: Some(value & 1),
+            },
+            (0x0, true, _) => ShiftedOperand {
+                value: 0,
+                carry_out: Some(0),
+            },
+            (0x1, false, 0) => ShiftedOperand {
+                value: 0,
+                carry_out: Some((value >> 31) & 1),
+            },
+            (0x1, true, 0) => unchanged,
+            (0x1, _, amount @ 1..=31) => ShiftedOperand {
+                value: value >> amount,
+                carry_out: Some((value >> (amount - 1)) & 1),
+            },
+            (0x1, true, 32) => ShiftedOperand {
+                value: 0,
+                carry_out: Some((value >> 31) & 1),
+            },
+            (0x1, true, _) => ShiftedOperand {
+                value: 0,
+                carry_out: Some(0),
+            },
+            (0x2, false, 0) => ShiftedOperand {
+                value: if value & 0x8000_0000 != 0 {
+                    u32::MAX
                 } else {
-                    value >> amount
-                }
-            }
-            0x2 => {
-                let amount = if shift_amount == 0 { 32 } else { shift_amount };
-                if amount >= 32 {
-                    if value & 0x8000_0000 != 0 {
-                        u32::MAX
-                    } else {
-                        0
+                    0
+                },
+                carry_out: Some((value >> 31) & 1),
+            },
+            (0x2, true, 0) => unchanged,
+            (0x2, _, amount @ 1..=31) => ShiftedOperand {
+                value: ((value as i32) >> amount) as u32,
+                carry_out: Some((value >> (amount - 1)) & 1),
+            },
+            (0x2, true, _) => ShiftedOperand {
+                value: if value & 0x8000_0000 != 0 {
+                    u32::MAX
+                } else {
+                    0
+                },
+                carry_out: Some((value >> 31) & 1),
+            },
+            (0x3, false, 0) => ShiftedOperand {
+                value: (value >> 1) | (old_carry << 31),
+                carry_out: Some(value & 1),
+            },
+            (0x3, true, 0) => unchanged,
+            (0x3, _, amount) => {
+                let rotate = amount & 0x1F;
+                if rotate == 0 {
+                    ShiftedOperand {
+                        value,
+                        carry_out: Some((value >> 31) & 1),
                     }
                 } else {
-                    ((value as i32) >> amount) as u32
+                    let shifted = value.rotate_right(rotate);
+                    ShiftedOperand {
+                        value: shifted,
+                        carry_out: Some((value >> (rotate - 1)) & 1),
+                    }
                 }
             }
-            0x3 => {
-                if shift_amount == 0 {
-                    let carry = (self.regs.cpsr >> 29) & 1;
-                    (value >> 1) | (carry << 31)
-                } else {
-                    value.rotate_right(shift_amount)
-                }
-            }
-            _ => value,
+            _ => unchanged,
         }
     }
+
     /// Set the program counter
     pub fn set_pc(&mut self, addr: u32) -> Result<()> {
         self.regs.pc = addr;
@@ -292,6 +370,10 @@ impl ArmCpu {
             return self.execute_branch_exchange(instr);
         }
 
+        if (instr & 0x0F8000F0) == 0x00800090 {
+            return self.execute_multiply_long(instr);
+        }
+
         if (instr & 0x0FC000F0) == 0x00000090 {
             return self.execute_multiply(instr);
         }
@@ -335,21 +417,14 @@ impl ArmCpu {
         instr: u32,
         _memory: &mut Memory,
     ) -> std::result::Result<CpuResult, CpuError> {
-        let i_bit = (instr >> 25) & 1;
         let opcode = (instr >> 21) & 0xF;
         let s_bit = (instr >> 20) & 1;
         let rn = (instr >> 16) & 0xF;
         let rd = (instr >> 12) & 0xF;
 
         let rn_val = self.read_operand_register(rn);
-        let operand2 = if i_bit == 1 {
-            // Immediate operand
-            let imm = instr & 0xFF;
-            let rotate = ((instr >> 8) & 0xF) * 2;
-            imm.rotate_right(rotate)
-        } else {
-            self.shifted_register_operand(instr)
-        };
+        let shifted_operand = self.data_processing_operand2(instr);
+        let operand2 = shifted_operand.value;
 
         let result = match opcode {
             0x0 => {
@@ -394,7 +469,7 @@ impl ArmCpu {
                 // TST (test, no write)
                 let result = rn_val & operand2;
                 if s_bit == 1 {
-                    self.update_flags_tst(result);
+                    self.update_flags_logical(result, shifted_operand.carry_out);
                 }
                 return Ok(CpuResult::Continue);
             }
@@ -402,7 +477,7 @@ impl ArmCpu {
                 // TEQ (test equivalence, no write)
                 let result = rn_val ^ operand2;
                 if s_bit == 1 {
-                    self.update_flags_tst(result);
+                    self.update_flags_logical(result, shifted_operand.carry_out);
                 }
                 return Ok(CpuResult::Continue);
             }
@@ -446,7 +521,24 @@ impl ArmCpu {
         self.regs.set(rd, result);
 
         if s_bit == 1 {
-            self.update_flags(result);
+            match opcode {
+                0x2 => self.update_flags_cmp(rn_val, operand2, result),
+                0x3 => self.update_flags_cmp(operand2, rn_val, result),
+                0x4 => self.update_flags_add(rn_val, operand2, result),
+                0x5 => {
+                    let carry = (self.regs.cpsr >> 29) & 1;
+                    self.update_flags_add_with_carry(rn_val, operand2, carry, result);
+                }
+                0x6 => {
+                    let borrow = 1 - ((self.regs.cpsr >> 29) & 1);
+                    self.update_flags_sub_with_borrow(rn_val, operand2, borrow, result);
+                }
+                0x7 => {
+                    let borrow = 1 - ((self.regs.cpsr >> 29) & 1);
+                    self.update_flags_sub_with_borrow(operand2, rn_val, borrow, result);
+                }
+                _ => self.update_flags_logical(result, shifted_operand.carry_out),
+            }
         }
 
         Ok(CpuResult::Continue)
@@ -470,6 +562,39 @@ impl ArmCpu {
 
         if set_flags {
             self.update_flags(result);
+        }
+
+        Ok(CpuResult::Continue)
+    }
+
+    /// Execute UMULL/UMLAL/SMULL/SMLAL instructions.
+    fn execute_multiply_long(&mut self, instr: u32) -> std::result::Result<CpuResult, CpuError> {
+        let signed = ((instr >> 22) & 1) == 1;
+        let accumulate = ((instr >> 21) & 1) == 1;
+        let set_flags = ((instr >> 20) & 1) == 1;
+        let rd_hi = (instr >> 16) & 0xF;
+        let rd_lo = (instr >> 12) & 0xF;
+        let rs = (instr >> 8) & 0xF;
+        let rm = instr & 0xF;
+
+        let mut result = if signed {
+            let lhs = self.regs.get(rm) as i32 as i64;
+            let rhs = self.regs.get(rs) as i32 as i64;
+            lhs.wrapping_mul(rhs) as u64
+        } else {
+            (self.regs.get(rm) as u64).wrapping_mul(self.regs.get(rs) as u64)
+        };
+
+        if accumulate {
+            let acc = ((self.regs.get(rd_hi) as u64) << 32) | self.regs.get(rd_lo) as u64;
+            result = result.wrapping_add(acc);
+        }
+
+        self.regs.set(rd_lo, result as u32);
+        self.regs.set(rd_hi, (result >> 32) as u32);
+
+        if set_flags {
+            self.update_flags_64(result);
         }
 
         Ok(CpuResult::Continue)
@@ -729,6 +854,41 @@ impl ArmCpu {
         Ok(CpuResult::Continue)
     }
 
+    fn update_flags_add_with_carry(&mut self, lhs: u32, rhs: u32, carry: u32, result: u32) {
+        let z = if result == 0 { 1 } else { 0 };
+        let n = (result >> 31) & 1;
+        let c = if lhs as u64 + rhs as u64 + carry as u64 > 0xFFFFFFFF {
+            1
+        } else {
+            0
+        };
+        let signed_sum = lhs as i32 as i64 + rhs as i32 as i64 + carry as i64;
+        let v = if signed_sum < i32::MIN as i64 || signed_sum > i32::MAX as i64 {
+            1
+        } else {
+            0
+        };
+        self.regs.cpsr =
+            (self.regs.cpsr & !0xF0000000) | (n << 31) | (z << 30) | (c << 29) | (v << 28);
+    }
+
+    fn update_flags_sub_with_borrow(&mut self, lhs: u32, rhs: u32, borrow: u32, result: u32) {
+        let z = if result == 0 { 1 } else { 0 };
+        let n = (result >> 31) & 1;
+        let c = if lhs as u64 >= rhs as u64 + borrow as u64 {
+            1
+        } else {
+            0
+        };
+        let signed_diff = lhs as i32 as i64 - rhs as i32 as i64 - borrow as i64;
+        let v = if signed_diff < i32::MIN as i64 || signed_diff > i32::MAX as i64 {
+            1
+        } else {
+            0
+        };
+        self.regs.cpsr =
+            (self.regs.cpsr & !0xF0000000) | (n << 31) | (z << 30) | (c << 29) | (v << 28);
+    }
     /// Update flags for general result
     fn update_flags(&mut self, result: u32) {
         let z = if result == 0 { 1 } else { 0 };
@@ -736,11 +896,22 @@ impl ArmCpu {
         self.regs.cpsr = (self.regs.cpsr & !0xC0000000) | (n << 31) | (z << 30);
     }
 
-    /// Update flags for TST/TEQ
-    fn update_flags_tst(&mut self, result: u32) {
+    /// Update N/Z flags for a 64-bit multiply result.
+    fn update_flags_64(&mut self, result: u64) {
+        let z = if result == 0 { 1 } else { 0 };
+        let n = ((result >> 63) & 1) as u32;
+        self.regs.cpsr = (self.regs.cpsr & !0xC0000000) | (n << 31) | (z << 30);
+    }
+
+    /// Update flags for logical operations and move operations.
+    fn update_flags_logical(&mut self, result: u32, carry_out: Option<u32>) {
         let z = if result == 0 { 1 } else { 0 };
         let n = (result >> 31) & 1;
-        self.regs.cpsr = (self.regs.cpsr & !0xC0000000) | (n << 31) | (z << 30);
+        self.regs.cpsr = if let Some(c) = carry_out {
+            (self.regs.cpsr & !0xE0000000) | (n << 31) | (z << 30) | (c << 29)
+        } else {
+            (self.regs.cpsr & !0xC0000000) | (n << 31) | (z << 30)
+        };
     }
 
     /// Update flags for CMP
@@ -820,6 +991,35 @@ mod tests {
     }
 
     #[test]
+    fn test_logical_shift_updates_carry_flag() {
+        let mut cpu = ArmCpu::new().unwrap();
+        let mut memory = Memory::new();
+
+        cpu.regs.r1 = 0x8000_0000;
+        cpu.execute_arm_instruction(0xE1B00081, &mut memory)
+            .unwrap();
+        assert_eq!(cpu.regs.r0, 0);
+        assert_eq!((cpu.regs.cpsr >> 29) & 1, 1);
+
+        cpu.regs.r1 = 1;
+        cpu.execute_arm_instruction(0xE1B000A1, &mut memory)
+            .unwrap();
+        assert_eq!(cpu.regs.r0, 0);
+        assert_eq!((cpu.regs.cpsr >> 29) & 1, 1);
+    }
+
+    #[test]
+    fn test_immediate_rotate_updates_carry_flag() {
+        let mut cpu = ArmCpu::new().unwrap();
+        let mut memory = Memory::new();
+
+        cpu.execute_arm_instruction(0xE3B00102, &mut memory)
+            .unwrap();
+        assert_eq!(cpu.regs.r0, 0x8000_0000);
+        assert_eq!((cpu.regs.cpsr >> 29) & 1, 1);
+    }
+
+    #[test]
     fn test_ldrsh_immediate_offset() {
         let mut cpu = ArmCpu::new().unwrap();
         let mut memory = Memory::new();
@@ -836,6 +1036,23 @@ mod tests {
     }
 
     #[test]
+    fn test_subs_updates_carry_flag() {
+        let mut cpu = ArmCpu::new().unwrap();
+        let mut memory = Memory::new();
+
+        cpu.regs.r1 = 15;
+        cpu.execute_arm_instruction(0xE2512001, &mut memory)
+            .unwrap();
+        assert_eq!(cpu.regs.r2, 14);
+        assert_eq!((cpu.regs.cpsr >> 29) & 1, 1);
+
+        cpu.regs.r1 = 0;
+        cpu.execute_arm_instruction(0xE2512001, &mut memory)
+            .unwrap();
+        assert_eq!(cpu.regs.r2, u32::MAX);
+        assert_eq!((cpu.regs.cpsr >> 29) & 1, 0);
+    }
+    #[test]
     fn test_multiply() {
         let mut cpu = ArmCpu::new().unwrap();
         let mut memory = Memory::new();
@@ -851,6 +1068,26 @@ mod tests {
         cpu.execute_arm_instruction(0xE0213291, &mut memory)
             .unwrap();
         assert_eq!(cpu.regs.r1, 47);
+    }
+
+    #[test]
+    fn test_multiply_long() {
+        let mut cpu = ArmCpu::new().unwrap();
+        let mut memory = Memory::new();
+
+        cpu.regs.r0 = u32::MAX;
+        cpu.regs.r1 = 2;
+        cpu.execute_arm_instruction(0xE0832190, &mut memory)
+            .unwrap();
+        assert_eq!(cpu.regs.r2, 0xFFFF_FFFE);
+        assert_eq!(cpu.regs.r3, 1);
+
+        cpu.regs.r0 = u32::MAX - 1;
+        cpu.regs.r1 = 3;
+        cpu.execute_arm_instruction(0xE0C32190, &mut memory)
+            .unwrap();
+        assert_eq!(cpu.regs.r2, 0xFFFF_FFFA);
+        assert_eq!(cpu.regs.r3, 0xFFFF_FFFF);
     }
 
     #[test]
