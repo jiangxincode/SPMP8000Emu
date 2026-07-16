@@ -118,9 +118,17 @@ impl NGameApi {
 
     /// NativeGE_getTime - Get time since application start
     pub fn native_ge_get_time(&mut self, memory: &mut Memory) {
-        // Return time in milliseconds (10ms resolution)
-        let time_ms = (self.tick_count * 33) as u32; // ~30fps = ~33ms per frame
+        let frame_time_ms = (self.tick_count * 33) as u32; // ~30fps = ~33ms per frame
+        let time_ms = frame_time_ms.max(self.last_time_ms.wrapping_add(1));
+        self.last_time_ms = time_ms;
         memory.set_register(crate::memory::REG_R0, time_ms);
+    }
+
+    /// NativeGE_showFPS - Toggle the firmware FPS overlay.
+    pub fn native_ge_show_fps(&mut self, memory: &mut Memory) {
+        let enabled = memory.get_register(crate::memory::REG_R0);
+        log::debug!("NativeGE_showFPS: {}", enabled);
+        memory.set_register(crate::memory::REG_R0, 0);
     }
 
     /// NativeGE_gameExit - Exit the game

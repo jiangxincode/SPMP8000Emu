@@ -1,8 +1,8 @@
 # Game Compatibility
 
 SPMP8000 games use the NGame1.0 binary format (`.bin` files) for the Sunplus
-SPMP8000 / SPCA556 chips. Each game was tested by running the emulator for 90
-frames (3 seconds at 30fps) and checking for crashes or blank frames.
+SPMP8000 / SPCA556 chips. Each game was tested by running the emulator for 300
+frames (10 seconds at 30fps) and checking for crashes or blank frames.
 
 ## Summary
 

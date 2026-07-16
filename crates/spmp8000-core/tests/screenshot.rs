@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use spmp8000_core::emulator::Emulator;
 
 /// Number of frames to run per game before sampling the output.
-const FRAMES: u32 = 90;
+const FRAMES: u32 = 300;
 
 /// Resolve the directory that holds the game assets.
 fn game_dir() -> Option<PathBuf> {

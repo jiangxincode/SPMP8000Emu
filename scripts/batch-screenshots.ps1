@@ -8,15 +8,15 @@
     saved to docs/images/, named after the game file (without extension).
 
 .PARAMETER Frames
-    Number of frames to emulate before capturing.  Default: 90 (3 seconds at
-    30 fps — enough for most title screens to appear).
+    Number of frames to emulate before capturing.  Default: 300 (10 seconds at
+    30 fps — enough for slower title screens such as GoBang to appear).
 
 .PARAMETER Binary
     Path to the spmp8000-emu binary.  Default: cargo build output.
 #>
 
 param(
-    [int]$Frames = 90,
+    [int]$Frames = 300,
     [string]$Binary = ""
 )
 

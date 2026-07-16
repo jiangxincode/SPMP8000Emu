@@ -90,8 +90,8 @@ spmp8000-emu --headless --frames 120 path/to/game.bin
 Capture a PNG screenshot after a number of frames, then exit:
 
 ```bash
-# Take a screenshot after 90 frames (3 seconds at 30fps)
-spmp8000-emu --screenshot screenshot.png --screenshot-frames 90 path/to/game.bin
+# Take a screenshot after 300 frames (10 seconds at 30fps)
+spmp8000-emu --screenshot screenshot.png --screenshot-frames 300 path/to/game.bin
 ```
 
 This is used by the batch screenshot script (`scripts/batch-screenshots.ps1`)
@@ -110,8 +110,8 @@ spmp8000-emu --scale 4 path/to/game.bin
 spmp8000-emu --fullscreen --volume 50 path/to/game.bin
 
 # Take a screenshot and exit
-spmp8000-emu --screenshot shot.png --screenshot-frames 90 path/to/game.bin
+spmp8000-emu --screenshot shot.png --screenshot-frames 300 path/to/game.bin
 
 # Batch screenshot (PowerShell)
-scripts/batch-screenshots.ps1 -Frames 120
+scripts/batch-screenshots.ps1
 ```

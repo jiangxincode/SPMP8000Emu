@@ -171,6 +171,80 @@ impl NGameApi {
         self.framebuffer_addr = Some(fb_addr);
         memory.set_register(crate::memory::REG_R0, fb_addr);
     }
+
+    /// MCatchSetDisplayScreen - Select the active display surface.
+    pub fn mcatch_set_display_screen(&mut self, memory: &mut Memory) {
+        let screen = memory.get_register(crate::memory::REG_R0);
+        log::debug!("MCatchSetDisplayScreen: 0x{:08X}", screen);
+        self.display_screen_addr = (screen != 0).then_some(screen);
+
+        if let Some(pixel_addr) = self.resolve_display_pixels(memory, screen) {
+            self.framebuffer_addr = Some(pixel_addr);
+        }
+        memory.set_register(crate::memory::REG_R0, 0);
+    }
+
+    /// MCatchGetDisplayScreen - Return the current display surface.
+    pub fn mcatch_get_display_screen(&mut self, memory: &mut Memory) {
+        let fb_addr = self.framebuffer_addr.unwrap_or(VRAM_BASE);
+        self.framebuffer_addr = Some(fb_addr);
+        memory.set_register(crate::memory::REG_R0, fb_addr);
+    }
+
+    /// MCatchSetAlphaBld - Store alpha-blending configuration.
+    pub fn mcatch_set_alpha_blend(&mut self, memory: &mut Memory) {
+        let mode = memory.get_register(crate::memory::REG_R0);
+        log::debug!("MCatchSetAlphaBld: {}", mode);
+        memory.set_register(crate::memory::REG_R0, 0);
+    }
+
+    /// MCatchGetAlphaBld - Return alpha blending disabled.
+    pub fn mcatch_get_alpha_blend(&mut self, memory: &mut Memory) {
+        memory.set_register(crate::memory::REG_R0, 0);
+    }
+
+    /// MCatchEnableFeature - Acknowledge optional graphics features.
+    pub fn mcatch_enable_feature(&mut self, memory: &mut Memory) {
+        let feature = memory.get_register(crate::memory::REG_R0);
+        log::debug!("MCatchEnableFeature: {}", feature);
+        memory.set_register(crate::memory::REG_R0, 0);
+    }
+
+    /// MCatchDisableFeature - Acknowledge optional graphics features.
+    pub fn mcatch_disable_feature(&mut self, memory: &mut Memory) {
+        let feature = memory.get_register(crate::memory::REG_R0);
+        let arg = memory.get_register(crate::memory::REG_R1);
+        log::debug!("MCatchDisableFeature: {} arg=0x{:08X}", feature, arg);
+        if feature == 12 {
+            if let Some(pixel_addr) = self.resolve_display_pixels(memory, arg) {
+                self.framebuffer_addr = Some(pixel_addr);
+            }
+        }
+        memory.set_register(crate::memory::REG_R0, 0);
+    }
+
+    /// MCatchSetCameraMode - Record camera mode selection.
+    pub fn mcatch_set_camera_mode(&mut self, memory: &mut Memory) {
+        let mode = memory.get_register(crate::memory::REG_R0);
+        log::debug!("MCatchSetCameraMode: {}", mode);
+        memory.set_register(crate::memory::REG_R0, 0);
+    }
+
+    /// MCatchEnableDoubleBuffer - Acknowledge double-buffer setup.
+    pub fn mcatch_enable_double_buffer(&mut self, memory: &mut Memory) {
+        log::debug!("MCatchEnableDoubleBuffer");
+        let fb_addr = self.framebuffer_addr.unwrap_or(VRAM_BASE);
+        self.framebuffer_addr = Some(fb_addr);
+        memory.set_register(crate::memory::REG_R0, 0);
+    }
+
+    /// MCatchUpdateScreen - Present the active framebuffer.
+    pub fn mcatch_update_screen(&mut self, memory: &mut Memory) {
+        let fb_addr = self.framebuffer_addr.unwrap_or(VRAM_BASE);
+        self.framebuffer_addr = Some(fb_addr);
+        memory.set_register(crate::memory::REG_R0, 0);
+    }
+
     /// MCatchSetFrameBuffer - Set framebuffer dimensions
     pub fn mcatch_set_framebuffer(&mut self, memory: &mut Memory) {
         let width = memory.get_register(crate::memory::REG_R0);
@@ -368,5 +442,36 @@ impl NGameApi {
         memory
             .read_u16(surface.palette_addr + index as u32 * 2)
             .ok()
+    }
+
+    fn resolve_display_pixels(&self, memory: &Memory, screen: u32) -> Option<u32> {
+        if screen == 0 {
+            return None;
+        }
+
+        let framebuffer_bytes = self.framebuffer_width * self.framebuffer_height * 2;
+        for offset in (0..=0x30).step_by(4) {
+            let Ok(candidate) = memory.read_u32(screen + offset) else {
+                continue;
+            };
+            if candidate < 0x0001_0000 || candidate == screen || candidate & 1 != 0 {
+                continue;
+            }
+            if memory.read_u16(candidate).is_ok()
+                && memory
+                    .read_u16(candidate + framebuffer_bytes.saturating_sub(2))
+                    .is_ok()
+            {
+                log::debug!(
+                    "MCatch display pixels: screen=0x{:08X} offset=0x{:02X} pixels=0x{:08X}",
+                    screen,
+                    offset,
+                    candidate
+                );
+                return Some(candidate);
+            }
+        }
+
+        None
     }
 }
