@@ -52,6 +52,7 @@ pub struct NGameApi {
     pub audio_channels: u32,
 
     // Input state
+    pub raw_key_state: u32,
     pub key_state: u32,
     pub key_map: [u32; 20],
 
@@ -86,6 +87,7 @@ impl NGameApi {
             audio_sample_rate: 22050,
             audio_channels: 1,
 
+            raw_key_state: 0,
             key_state: 0,
             key_map: [0; 20],
 
