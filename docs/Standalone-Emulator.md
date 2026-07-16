@@ -4,6 +4,14 @@ This guide covers installing and running the standalone `spmp8000-emu` binary,
 loading games, keyboard controls, display scaling, headless mode, and all
 command-line options.
 
+## Supported Platforms
+
+| Platform | Architecture | Status |
+|----------|-------------|--------|
+| Windows | x86_64 | ✅ |
+| macOS | x86_64, aarch64 | ✅ |
+| Linux | x86_64, aarch64 | ✅ |
+
 ## Installation
 
 Download the latest standalone binary for your platform from the
