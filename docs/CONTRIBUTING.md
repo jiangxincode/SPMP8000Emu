@@ -34,28 +34,3 @@ free to open a discussion issue.
 
 To understand the SPMP8000 game file format (NGame1.0), see
 [Game File Formats](Game-File-Formats.md).
-
-## Testing
-
-Run the unit tests:
-
-```bash
-cargo test --workspace
-```
-
-There is also a smoke test that loads every available game, runs it for a number
-of frames, and checks that the emulator neither panics nor produces a blank
-frame. It needs the (non-distributed) game assets, so it is `#[ignore]`d by
-default and run on demand:
-
-```bash
-# Uses <repo>/tmp/GameCollection by default, or set SPMP8000_GAME_DIR
-cargo test -p spmp8000-core --test screenshot -- --ignored --nocapture
-```
-
-To generate screenshots for all games:
-
-```bash
-# PowerShell script
-scripts/batch-screenshots.ps1 -Frames 90
-```

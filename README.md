@@ -133,22 +133,20 @@ For the full game list with screenshots, see [Game Compatibility](docs/Game-Comp
 
 ## Testing
 
-Run unit tests:
+Run the unit tests:
 
 ```bash
 cargo test --workspace
 ```
 
-Run the smoke test (requires game assets in `tmp/GameCollection`):
+There is also a smoke test that loads every available game, runs it for a number
+of frames, and checks that the emulator neither panics nor produces a blank
+frame. It needs the (non-distributed) game assets, so it is `#[ignore]`d by
+default and only runs on demand:
 
 ```bash
+# Uses <repo>/tmp/GameCollection by default, or set SPMP8000_GAME_DIR
 cargo test -p spmp8000-core --test screenshot -- --ignored --nocapture
-```
-
-Generate screenshots for all games:
-
-```bash
-scripts/batch-screenshots.ps1 -Frames 90
 ```
 
 ## Contributing
