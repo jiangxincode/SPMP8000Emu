@@ -187,8 +187,8 @@ impl NGameApi {
             0x15 => self.return_success(memory), // NativeGEPauseRes
             0x16 => self.return_success(memory), // NativeGEResumeRes
             0x17 => self.native_ge_stop_res(memory),
-            0x18 => self.return_success(memory), // NativeGEWriteRecord
-            0x19 => self.return_success(memory), // NativeGEReadRecord
+            0x18 => self.native_ge_write_record(memory),
+            0x19 => self.native_ge_read_record(memory),
             0x1A => self.native_ge_get_key_input(memory),
             0x2C => self.native_ge_show_fps(memory),
             0x1B => self.cyg_thread_delay(memory),
@@ -211,7 +211,12 @@ impl NGameApi {
             0x37 => self.emu_if_key_init(memory),
             0x38 => self.emu_if_key_get_input(memory),
             0x3C => self.emu_if_fs_file_open(memory),
+            0x3D => self.emu_if_fs_file_get_size(memory),
+            0x3E => self.emu_if_fs_file_write(memory),
             0x3F => self.emu_if_fs_file_read(memory),
+            0x40 => self.emu_if_fs_file_get_char(memory),
+            0x41 => self.emu_if_fs_file_seek(memory),
+            0x42 => self.emu_if_fs_file_cur_pos(memory),
             0x43 => self.emu_if_fs_file_close(memory),
 
             0x1000..=0x2000 => {
