@@ -37,6 +37,7 @@ pub struct FileHandle {
 pub struct NGameApi {
     // Graphics state
     pub framebuffer_addr: Option<u32>,
+    pub display_screen_addr: Option<u32>,
     pub framebuffer_width: u32,
     pub framebuffer_height: u32,
     pub framebuffer_pitch: u32,
@@ -63,6 +64,7 @@ pub struct NGameApi {
 
     // Timing state
     pub start_time: u64,
+    pub last_time_ms: u32,
     pub tick_count: u64,
 
     // Resource table
@@ -74,6 +76,7 @@ impl NGameApi {
     pub fn new() -> Self {
         Self {
             framebuffer_addr: None,
+            display_screen_addr: None,
             framebuffer_width: 320,
             framebuffer_height: 240,
             framebuffer_pitch: 640, // width * 2 for RGB565
@@ -96,6 +99,7 @@ impl NGameApi {
             game_dir: String::from("."),
 
             start_time: 0,
+            last_time_ms: 0,
             tick_count: 0,
 
             resource_table: Vec::new(),
@@ -155,7 +159,7 @@ impl NGameApi {
                 memory.set_register(crate::memory::REG_R0, 0);
             }
             0x02 => self.return_success(memory), // MCatchFlush
-            0x03 => self.return_success(memory), // MCatchPaint
+            0x03 => self.mcatch_update_screen(memory), // MCatchPaint
             0x04 => self.mcatch_load_image(memory),
             0x05 => self.mcatch_free_image(memory),
             0x06 => self.mcatch_init_graph(memory),
@@ -163,22 +167,30 @@ impl NGameApi {
             0x08 => self.return_success(memory), // MCatchGetColorROP
             0x09 => self.mcatch_set_fg_color(memory),
             0x0A => self.return_success(memory), // MCatchGetFGColor
-            0x0B => self.return_success(memory), // MCatchSetDisplayScreen
-            0x0C => self.return_success(memory), // MCatchGetDisplayScreen
+            0x0B => self.mcatch_set_display_screen(memory),
+            0x0C => self.mcatch_get_display_screen(memory),
+            0x25 => self.mcatch_set_alpha_blend(memory),
+            0x26 => self.mcatch_get_alpha_blend(memory),
+            0x27 => self.mcatch_enable_feature(memory),
+            0x28 => self.mcatch_disable_feature(memory),
+            0x29 => self.mcatch_set_camera_mode(memory),
             0x0D => self.mcatch_set_framebuffer(memory),
             0x0E => self.mcatch_get_framebuffer(memory),
             0x0F => self.mcatch_bitblt(memory),
             0x10 => self.mcatch_sprite(memory),
             0x11 => self.mcatch_fill_rect(memory),
+            0x2A => self.mcatch_enable_double_buffer(memory),
+            0x2B => self.mcatch_update_screen(memory),
             0x12 => self.native_ge_init_res(memory),
             0x13 => self.native_ge_get_res(memory),
             0x14 => self.native_ge_play_res(memory),
             0x15 => self.return_success(memory), // NativeGEPauseRes
             0x16 => self.return_success(memory), // NativeGEResumeRes
             0x17 => self.native_ge_stop_res(memory),
-            0x18 => self.return_success(memory), // NativeGEWriteRecord
-            0x19 => self.return_success(memory), // NativeGEReadRecord
+            0x18 => self.native_ge_write_record(memory),
+            0x19 => self.native_ge_read_record(memory),
             0x1A => self.native_ge_get_key_input(memory),
+            0x2C => self.native_ge_show_fps(memory),
             0x1B => self.cyg_thread_delay(memory),
             0x1C => self.native_ge_get_time(memory),
             0x1D => self.native_ge_game_exit(memory),
@@ -199,7 +211,12 @@ impl NGameApi {
             0x37 => self.emu_if_key_init(memory),
             0x38 => self.emu_if_key_get_input(memory),
             0x3C => self.emu_if_fs_file_open(memory),
+            0x3D => self.emu_if_fs_file_get_size(memory),
+            0x3E => self.emu_if_fs_file_write(memory),
             0x3F => self.emu_if_fs_file_read(memory),
+            0x40 => self.emu_if_fs_file_get_char(memory),
+            0x41 => self.emu_if_fs_file_seek(memory),
+            0x42 => self.emu_if_fs_file_cur_pos(memory),
             0x43 => self.emu_if_fs_file_close(memory),
 
             0x1000..=0x2000 => {
