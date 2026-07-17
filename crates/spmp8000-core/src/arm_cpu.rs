@@ -342,6 +342,11 @@ impl ArmCpu {
 
         // Fetch instruction
         let pc = self.regs.pc;
+        if let Some(svc_num) = crate::function_table::fake_firmware_direct_svc(pc) {
+            self.regs.pc = self.regs.lr;
+            return Ok(CpuResult::SvcCall(svc_num));
+        }
+
         let instr = memory
             .read_u32(pc)
             .map_err(|e| CpuError::MemoryError(e.to_string()))?;
@@ -366,7 +371,7 @@ impl ArmCpu {
             return Ok(CpuResult::Continue);
         }
 
-        if (instr & 0x0FFFFFF0) == 0x012FFF10 {
+        if (instr & 0x0FFFFFF0) == 0x012FFF10 || (instr & 0x0FFFFFF0) == 0x012FFF30 {
             return self.execute_branch_exchange(instr);
         }
 
@@ -821,6 +826,15 @@ impl ArmCpu {
     fn execute_branch_exchange(&mut self, instr: u32) -> std::result::Result<CpuResult, CpuError> {
         let rn = instr & 0xF;
         let target = self.regs.get(rn);
+        let link = (instr & 0x00000020) != 0;
+        if link {
+            self.regs.lr = self.regs.pc;
+        }
+        if target == 0xFFE0_FFE0 {
+            self.regs.r0 = 0;
+            self.regs.pc = self.regs.lr;
+            return Ok(CpuResult::Continue);
+        }
         self.thumb_mode = (target & 1) != 0;
         if self.thumb_mode {
             return Err(CpuError::InvalidInstruction(instr));
@@ -973,6 +987,20 @@ mod tests {
 
         cpu.set_sp(0x2000).unwrap();
         assert_eq!(cpu.get_register(13).unwrap(), 0x2000);
+    }
+
+    #[test]
+    fn test_blx_register_sets_link_and_branches() {
+        let mut cpu = ArmCpu::new().unwrap();
+        let mut memory = Memory::new();
+
+        cpu.regs.pc = 0x1004;
+        cpu.regs.r3 = 0x2000;
+        cpu.execute_arm_instruction(0xE12FFF33, &mut memory)
+            .unwrap();
+
+        assert_eq!(cpu.regs.pc, 0x2000);
+        assert_eq!(cpu.regs.lr, 0x1004);
     }
 
     #[test]

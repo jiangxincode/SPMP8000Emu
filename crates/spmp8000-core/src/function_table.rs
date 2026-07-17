@@ -15,6 +15,57 @@ pub const ENTRY_SIZE: u32 = 4;
 const TRAMPOLINE_BASE: u32 = FUNC_TABLE_BASE + 0x800;
 const TRAMPOLINE_SIZE: u32 = 8;
 
+const FAKE_FW_BASE: u32 = 0x0028_0000;
+const FAKE_FW_G_ST_EMU_FUNCS: u32 = FAKE_FW_BASE;
+const FAKE_FW_DUMMY: u32 = FAKE_FW_BASE + 0x100;
+const FAKE_FW_ECOS_CLOSE: u32 = FAKE_FW_BASE + 0x120;
+const FAKE_FW_ECOS_READ: u32 = FAKE_FW_BASE + 0x140;
+const FAKE_FW_ECOS_WRITE: u32 = FAKE_FW_BASE + 0x160;
+const FAKE_FW_ECOS_LSEEK: u32 = FAKE_FW_BASE + 0x180;
+const FAKE_FW_ECOS_FSTAT: u32 = FAKE_FW_BASE + 0x1A0;
+const FAKE_FW_ECOS_OPEN: u32 = FAKE_FW_BASE + 0x1C0;
+const FAKE_FW_ERRNO_PTR: u32 = FAKE_FW_BASE + 0x1E0;
+const FAKE_FW_FD_ALLOC: u32 = FAKE_FW_BASE + 0x200;
+const FAKE_FW_ECOS_STAT: u32 = FAKE_FW_BASE + 0x220;
+const FAKE_FW_ECOS_GETCWD: u32 = FAKE_FW_BASE + 0x240;
+const FAKE_FW_ECOS_CHDIR: u32 = FAKE_FW_BASE + 0x260;
+const FAKE_FW_ECOS_OPENDIR: u32 = FAKE_FW_BASE + 0x280;
+const FAKE_FW_ECOS_READDIR_R: u32 = FAKE_FW_BASE + 0x2A0;
+const FAKE_FW_ECOS_READDIR: u32 = FAKE_FW_BASE + 0x2C0;
+const FAKE_FW_NATIVE_FS_OPEN: u32 = FAKE_FW_BASE + 0x300;
+const FAKE_FW_NATIVE_FS_READ: u32 = FAKE_FW_BASE + 0x320;
+const FAKE_FW_NATIVE_FS_WRITE: u32 = FAKE_FW_BASE + 0x340;
+const FAKE_FW_EMUIF_BASE: u32 = FAKE_FW_BASE + 0x500;
+
+pub fn fake_firmware_direct_svc(pc: u32) -> Option<u32> {
+    let offset = pc.checked_sub(FAKE_FW_G_ST_EMU_FUNCS)?;
+    match offset {
+        0x00 => Some(0x6F),
+        0x04 => Some(0x31),
+        0x08 => Some(0x32),
+        0x0C => Some(0x6F),
+        0x10 => Some(0x33),
+        0x14 => Some(0x34),
+        0x18 => Some(0x35),
+        0x1C => Some(0x36),
+        0x20 => Some(0x37),
+        0x24 => Some(0x38),
+        0x28 => Some(0x39),
+        0x2C => Some(0x3A),
+        0x30 => Some(0x3B),
+        0x34 => Some(0x3C),
+        0x38 => Some(0x3D),
+        0x3C => Some(0x3E),
+        0x40 => Some(0x3F),
+        0x44 => Some(0x40),
+        0x48 => Some(0x41),
+        0x4C => Some(0x42),
+        0x50 => Some(0x43),
+        0x54..=0x70 if offset % 4 == 0 => Some(0x6F),
+        _ => None,
+    }
+}
+
 /// NGame API function indices (from libgame.c analysis)
 /// These correspond to the FUNC() macro offsets
 #[repr(u32)]
@@ -196,6 +247,8 @@ impl FunctionTable {
             trampoline_index += 1;
         }
 
+        Self::setup_fake_firmware(memory)?;
+
         // Also set up emuIf function table at a different location
         // The emuIf table is typically at a different address
         let emuif_base = FUNC_TABLE_BASE + 0x400; // Offset for emuIf table
@@ -244,6 +297,186 @@ impl FunctionTable {
         memory.write_u32(trampoline_addr + 4, 0xE12FFF1E)?; // BX LR
         Ok(())
     }
+
+    fn setup_fake_firmware(memory: &mut Memory) -> Result<()> {
+        Self::write_ecos_stub(memory, FAKE_FW_DUMMY, 0x6F, &[])?;
+        Self::write_ecos_stub(memory, FAKE_FW_ECOS_CLOSE, 0x63, &[])?;
+        Self::write_ecos_stub(memory, FAKE_FW_ECOS_READ, 0x61, &[])?;
+        Self::write_ecos_stub(memory, FAKE_FW_ECOS_WRITE, 0x62, &[])?;
+        Self::write_ecos_stub(memory, FAKE_FW_ECOS_LSEEK, 0x64, &[])?;
+        Self::write_ecos_stub(memory, FAKE_FW_ECOS_FSTAT, 0x65, &[])?;
+        Self::write_ecos_stub(
+            memory,
+            FAKE_FW_ECOS_OPEN,
+            0x60,
+            &[FAKE_FW_ERRNO_PTR, FAKE_FW_FD_ALLOC],
+        )?;
+        Self::write_ecos_stub(memory, FAKE_FW_ERRNO_PTR, 0x69, &[])?;
+        Self::write_ecos_stub(memory, FAKE_FW_FD_ALLOC, 0x6A, &[])?;
+        Self::write_fs_probe_stub(memory, FAKE_FW_ECOS_STAT, 0x66, 0x34)?;
+        Self::write_fs_probe_stub(memory, FAKE_FW_ECOS_GETCWD, 0x67, 0x38)?;
+        Self::write_fs_probe_stub(memory, FAKE_FW_ECOS_CHDIR, 0x68, 0x30)?;
+        Self::write_ecos_stub(memory, FAKE_FW_ECOS_OPENDIR, 0x6B, &[FAKE_FW_FD_ALLOC])?;
+        Self::write_readdir_r_stub(memory)?;
+        Self::write_readdir_stub(memory)?;
+
+        Self::write_native_wrapper(
+            memory,
+            FUNC_TABLE_BASE + NativeFuncIndex::NativeGEFsOpen as u32,
+            FAKE_FW_NATIVE_FS_OPEN,
+            0x1F,
+            &[FAKE_FW_ECOS_OPEN, FAKE_FW_ECOS_FSTAT],
+        )?;
+        Self::write_native_wrapper(
+            memory,
+            FUNC_TABLE_BASE + NativeFuncIndex::NativeGEFsRead as u32,
+            FAKE_FW_NATIVE_FS_READ,
+            0x20,
+            &[FAKE_FW_ECOS_READ],
+        )?;
+        Self::write_native_wrapper(
+            memory,
+            FUNC_TABLE_BASE + NativeFuncIndex::NativeGEFsWrite as u32,
+            FAKE_FW_NATIVE_FS_WRITE,
+            0x21,
+            &[FAKE_FW_ECOS_WRITE],
+        )?;
+
+        let emuif_funcs: &[(u32, u32)] = &[
+            (0x00, 0x30),
+            (0x04, 0x31),
+            (0x08, 0x32),
+            (0x0C, 0x6F),
+            (0x10, 0x33),
+            (0x14, 0x34),
+            (0x18, 0x35),
+            (0x1C, 0x36),
+            (0x20, 0x37),
+            (0x24, 0x38),
+            (0x28, 0x39),
+            (0x2C, 0x3A),
+            (0x30, 0x3B),
+            (0x34, 0x3C),
+            (0x38, 0x3D),
+            (0x3C, 0x3E),
+            (0x40, 0x3F),
+            (0x44, 0x40),
+            (0x48, 0x41),
+            (0x4C, 0x42),
+            (0x50, 0x43),
+            (0x54, 0x6F),
+            (0x58, 0x6F),
+            (0x5C, 0x6F),
+            (0x60, 0x6F),
+            (0x64, 0x6F),
+            (0x68, 0x6F),
+            (0x6C, 0x6F),
+        ];
+
+        for (offset, svc_num) in emuif_funcs {
+            let wrapper_addr = FAKE_FW_EMUIF_BASE + offset * 4;
+            let bl_targets: &[u32] = match *offset {
+                0x38 => &[FAKE_FW_ECOS_FSTAT],
+                0x4C => &[FAKE_FW_ECOS_LSEEK],
+                0x50 => &[FAKE_FW_ECOS_CLOSE],
+                _ => &[],
+            };
+            Self::write_direct_wrapper(memory, wrapper_addr, *svc_num, bl_targets)?;
+            memory.write_u32(FAKE_FW_G_ST_EMU_FUNCS + offset, wrapper_addr)?;
+        }
+
+        let diag_ptr = memory.read_u32(FUNC_TABLE_BASE + NativeFuncIndex::DiagPrintf as u32)?;
+        for index in 0..28u32 {
+            let entry_addr = FAKE_FW_G_ST_EMU_FUNCS + index * 4;
+            if memory.read_u32(entry_addr)? == 0 {
+                memory.write_u32(entry_addr, FAKE_FW_DUMMY)?;
+            }
+        }
+        memory.write_u32(FAKE_FW_G_ST_EMU_FUNCS + 28 * 4, diag_ptr)?;
+        Ok(())
+    }
+
+    fn write_ecos_stub(
+        memory: &mut Memory,
+        addr: u32,
+        svc_num: u32,
+        bl_targets: &[u32],
+    ) -> Result<()> {
+        memory.write_u32(addr, 0xE92D4000)?; // STMFD SP!, {LR}
+        memory.write_u32(addr + 4, 0xEF000000u32 | svc_num)?;
+        memory.write_u32(addr + 8, 0xE8BD8000)?; // LDMFD SP!, {PC}
+        for (index, target) in bl_targets.iter().enumerate() {
+            Self::write_bl(memory, addr + 12 + index as u32 * 4, *target)?;
+        }
+        Ok(())
+    }
+
+    fn write_fs_probe_stub(
+        memory: &mut Memory,
+        addr: u32,
+        svc_num: u32,
+        getinfo_offset: u32,
+    ) -> Result<()> {
+        Self::write_ecos_stub(memory, addr, svc_num, &[FAKE_FW_ERRNO_PTR])?;
+        memory.write_u32(addr + 16, 0xE590F000 | getinfo_offset)?; // LDR PC, [R0, #offset]
+        Ok(())
+    }
+
+    fn write_readdir_r_stub(memory: &mut Memory) -> Result<()> {
+        memory.write_u32(FAKE_FW_ECOS_READDIR_R, 0xE92D4000)?; // STMFD SP!, {LR}
+        memory.write_u32(FAKE_FW_ECOS_READDIR_R + 4, 0xEF00006C)?;
+        memory.write_u32(FAKE_FW_ECOS_READDIR_R + 8, 0xE8BD8000)?; // LDMFD SP!, {PC}
+        memory.write_u32(FAKE_FW_ECOS_READDIR_R + 12, 0xE3A02F41)?; // MOV R2, #0x104
+        Self::write_bl(memory, FAKE_FW_ECOS_READDIR_R + 16, FAKE_FW_ECOS_READ)?;
+        Ok(())
+    }
+
+    fn write_readdir_stub(memory: &mut Memory) -> Result<()> {
+        memory.write_u32(FAKE_FW_ECOS_READDIR, 0xE92D4000)?; // STMFD SP!, {LR}
+        memory.write_u32(FAKE_FW_ECOS_READDIR + 4, 0xEF00006D)?;
+        memory.write_u32(FAKE_FW_ECOS_READDIR + 8, 0xE8BD8000)?; // LDMFD SP!, {PC}
+        Self::write_bl(memory, FAKE_FW_ECOS_READDIR + 12, FAKE_FW_ECOS_READDIR_R)?;
+        Self::write_bl(memory, FAKE_FW_ECOS_READDIR + 16, FAKE_FW_ERRNO_PTR)?;
+        Ok(())
+    }
+
+    fn write_native_wrapper(
+        memory: &mut Memory,
+        entry_addr: u32,
+        wrapper_addr: u32,
+        svc_num: u32,
+        bl_targets: &[u32],
+    ) -> Result<()> {
+        memory.write_u32(entry_addr, wrapper_addr)?;
+        memory.write_u32(wrapper_addr, 0xEF000000u32 | svc_num)?;
+        memory.write_u32(wrapper_addr + 4, 0xE12FFF1E)?; // BX LR
+        for (index, target) in bl_targets.iter().enumerate() {
+            Self::write_bl(memory, wrapper_addr + 8 + index as u32 * 4, *target)?;
+        }
+        Ok(())
+    }
+
+    fn write_direct_wrapper(
+        memory: &mut Memory,
+        wrapper_addr: u32,
+        svc_num: u32,
+        bl_targets: &[u32],
+    ) -> Result<()> {
+        memory.write_u32(wrapper_addr, 0xEF000000u32 | svc_num)?;
+        memory.write_u32(wrapper_addr + 4, 0xE12FFF1E)?; // BX LR
+        for (index, target) in bl_targets.iter().enumerate() {
+            Self::write_bl(memory, wrapper_addr + 8 + index as u32 * 4, *target)?;
+        }
+        Ok(())
+    }
+
+    fn write_bl(memory: &mut Memory, addr: u32, target: u32) -> Result<()> {
+        let diff = ((target as i64 - (addr as i64 + 8)) / 4) as i32;
+        let imm = (diff as u32) & 0x00FF_FFFF;
+        memory.write_u32(addr, 0xEB00_0000 | imm)?;
+        Ok(())
+    }
+
     /// Create an ARM trampoline that jumps to a given address
     pub fn create_trampoline(target_addr: u32) -> Vec<u8> {
         // ARM branch instruction: B target
@@ -284,6 +517,9 @@ mod tests {
                 Permission::ALL,
                 "func_table",
             )
+            .unwrap();
+        memory
+            .map_region(FAKE_FW_BASE, 4096, Permission::ALL, "fake_fw")
             .unwrap();
 
         let ft = FunctionTable::new();
