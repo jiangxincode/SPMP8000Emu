@@ -417,9 +417,9 @@ impl NGameApi {
                 }
 
                 let (source_x, source_y) = transformed_source(x, y, copy_w, copy_h, transformation);
-                let idx =
-                    self.read_surface_index(memory, &surface, src_x + source_x, src_y + source_y);
-                if let Some(color) = self.read_surface_color(memory, &surface, idx) {
+                if let Some(color) =
+                    self.read_surface_color(memory, &surface, src_x + source_x, src_y + source_y)
+                {
                     if sprite && color == SPRITE_TRANSPARENT_COLOR {
                         continue;
                     }
@@ -449,7 +449,19 @@ impl NGameApi {
         }
     }
 
-    fn read_surface_color(&self, memory: &Memory, surface: &Surface, index: u8) -> Option<u16> {
+    fn read_surface_color(
+        &self,
+        memory: &Memory,
+        surface: &Surface,
+        x: u32,
+        y: u32,
+    ) -> Option<u16> {
+        if surface.img_type == 0 {
+            let pixel_index = y * surface.width as u32 + x;
+            return memory.read_u16(surface.data_addr + pixel_index * 2).ok();
+        }
+
+        let index = self.read_surface_index(memory, surface, x, y);
         if surface.palette_addr == 0 {
             let v = index as u16;
             return Some(((v & 0xF8) << 8) | ((v & 0xFC) << 3) | (v >> 3));
@@ -546,6 +558,50 @@ mod tests {
 
         assert_eq!(api.read_surface_index(&memory, &surface, 0, 0), 0x03);
         assert_eq!(api.read_surface_index(&memory, &surface, 1, 0), 0x0A);
+    }
+
+    #[test]
+    fn copies_direct_rgb565_surface_pixels() {
+        const DATA_ADDR: u32 = 0x1000;
+        const RECT_ADDR: u32 = 0x1100;
+        const AT_ADDR: u32 = 0x1200;
+
+        let mut api = NGameApi::new();
+        api.framebuffer_addr = Some(VRAM_BASE);
+        api.framebuffer_width = 2;
+        api.framebuffer_height = 1;
+        api.framebuffer_pitch = 4;
+        api.surfaces.insert(
+            1,
+            Surface {
+                data_addr: DATA_ADDR,
+                width: 2,
+                height: 1,
+                img_type: 0,
+                palette_addr: 0,
+                palette_entries: 0,
+            },
+        );
+
+        let mut memory = Memory::new();
+        memory
+            .map_region(DATA_ADDR, 0x1000, Permission::ALL, "RAM")
+            .unwrap();
+        memory
+            .map_region(VRAM_BASE, 0x1000, Permission::ALL, "VRAM")
+            .unwrap();
+        memory.write_u16(DATA_ADDR, 0xF800).unwrap();
+        memory.write_u16(DATA_ADDR + 2, 0x07E0).unwrap();
+        memory.write_u16(RECT_ADDR + 4, 2).unwrap();
+        memory.write_u16(RECT_ADDR + 6, 1).unwrap();
+        memory.set_register(REG_R0, 1);
+        memory.set_register(REG_R1, RECT_ADDR);
+        memory.set_register(REG_R2, AT_ADDR);
+
+        api.mcatch_bitblt(&mut memory);
+
+        assert_eq!(memory.read_u16(VRAM_BASE).unwrap(), 0xF800);
+        assert_eq!(memory.read_u16(VRAM_BASE + 2).unwrap(), 0x07E0);
     }
 
     #[test]
