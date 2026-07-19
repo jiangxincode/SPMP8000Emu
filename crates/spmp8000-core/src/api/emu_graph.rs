@@ -179,10 +179,6 @@ impl NGameApi {
         let screen = memory.get_register(crate::memory::REG_R0);
         log::debug!("MCatchSetDisplayScreen: 0x{:08X}", screen);
         self.display_screen_addr = (screen != 0).then_some(screen);
-
-        if let Some(pixel_addr) = self.resolve_display_pixels(memory, screen) {
-            self.framebuffer_addr = Some(pixel_addr);
-        }
         memory.set_register(crate::memory::REG_R0, 0);
     }
 
@@ -215,13 +211,7 @@ impl NGameApi {
     /// MCatchDisableFeature - Acknowledge optional graphics features.
     pub fn mcatch_disable_feature(&mut self, memory: &mut Memory) {
         let feature = memory.get_register(crate::memory::REG_R0);
-        let arg = memory.get_register(crate::memory::REG_R1);
-        log::debug!("MCatchDisableFeature: {} arg=0x{:08X}", feature, arg);
-        if feature == 12 {
-            if let Some(pixel_addr) = self.resolve_display_pixels(memory, arg) {
-                self.framebuffer_addr = Some(pixel_addr);
-            }
-        }
+        log::debug!("MCatchDisableFeature: {}", feature);
         memory.set_register(crate::memory::REG_R0, 0);
     }
 
@@ -471,37 +461,6 @@ impl NGameApi {
             .read_u16(surface.palette_addr + index as u32 * 2)
             .ok()
     }
-
-    fn resolve_display_pixels(&self, memory: &Memory, screen: u32) -> Option<u32> {
-        if screen == 0 {
-            return None;
-        }
-
-        let framebuffer_bytes = self.framebuffer_width * self.framebuffer_height * 2;
-        for offset in (0..=0x30).step_by(4) {
-            let Ok(candidate) = memory.read_u32(screen + offset) else {
-                continue;
-            };
-            if candidate < 0x0001_0000 || candidate == screen || candidate & 1 != 0 {
-                continue;
-            }
-            if memory.read_u16(candidate).is_ok()
-                && memory
-                    .read_u16(candidate + framebuffer_bytes.saturating_sub(2))
-                    .is_ok()
-            {
-                log::debug!(
-                    "MCatch display pixels: screen=0x{:08X} offset=0x{:02X} pixels=0x{:08X}",
-                    screen,
-                    offset,
-                    candidate
-                );
-                return Some(candidate);
-            }
-        }
-
-        None
-    }
 }
 
 fn transformed_dimensions(
@@ -587,6 +546,48 @@ mod tests {
 
         assert_eq!(api.read_surface_index(&memory, &surface, 0, 0), 0x03);
         assert_eq!(api.read_surface_index(&memory, &surface, 1, 0), 0x0A);
+    }
+
+    #[test]
+    fn display_screen_dimensions_are_not_used_as_framebuffer_address() {
+        const DISPLAY_ADDR: u32 = 0x2000;
+
+        let mut api = NGameApi::new();
+        api.framebuffer_addr = Some(VRAM_BASE);
+        let mut memory = Memory::new();
+        memory
+            .map_region(0x1000, 0x40000, Permission::ALL, "RAM")
+            .unwrap();
+        memory.write_u16(DISPLAY_ADDR + 4, 2).unwrap();
+        memory.write_u16(DISPLAY_ADDR + 6, 1).unwrap();
+        memory.set_register(REG_R0, DISPLAY_ADDR);
+
+        api.mcatch_set_display_screen(&mut memory);
+
+        assert_eq!(api.display_screen_addr, Some(DISPLAY_ADDR));
+        assert_eq!(api.framebuffer_addr, Some(VRAM_BASE));
+        assert_eq!(memory.get_register(REG_R0), 0);
+    }
+
+    #[test]
+    fn disabling_features_ignores_stale_second_argument() {
+        const STALE_ADDR: u32 = 0x2000;
+
+        let mut api = NGameApi::new();
+        api.framebuffer_addr = Some(VRAM_BASE);
+        let mut memory = Memory::new();
+        memory
+            .map_region(0x1000, 0x40000, Permission::ALL, "RAM")
+            .unwrap();
+        memory.write_u16(STALE_ADDR + 4, 2).unwrap();
+        memory.write_u16(STALE_ADDR + 6, 1).unwrap();
+        memory.set_register(REG_R0, 12);
+        memory.set_register(REG_R1, STALE_ADDR);
+
+        api.mcatch_disable_feature(&mut memory);
+
+        assert_eq!(api.framebuffer_addr, Some(VRAM_BASE));
+        assert_eq!(memory.get_register(REG_R0), 0);
     }
 
     #[test]
