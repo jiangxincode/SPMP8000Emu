@@ -24,7 +24,7 @@ ARM-based CPU and HLE system API.
 
 - **NGame1.0 format support** — file loading, header parsing, DES decryption, LZ77 decompression
 - **ARM CPU emulation** — full ARM instruction set execution
-- **HLE system API** — emuIf, NativeGE, and eCos interfaces
+- **HLE system API** — emuIf, NativeGE, and eCos interfaces with instruction-driven timing
 - **Graphics rendering** — RGB565 to XRGB8888 conversion, 320×240 display
 - **Audio emulation** — PCM audio output at 22050 Hz
 - **Input handling** — keyboard input with configurable mappings
