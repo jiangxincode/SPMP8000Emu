@@ -7,8 +7,7 @@
 use crate::memory::Memory;
 use anyhow::Result;
 
-/// Function table base address (where we store our trampolines)
-pub const FUNC_TABLE_BASE: u32 = 0x00100000;
+pub use crate::memory::FUNC_TABLE_BASE;
 
 /// Function table entry size (4 bytes per pointer)
 pub const ENTRY_SIZE: u32 = 4;
@@ -271,13 +270,18 @@ impl Default for FunctionTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::Permission;
+    use crate::memory::{Permission, FUNC_TABLE_SIZE};
 
     #[test]
     fn test_function_table_setup() {
         let mut memory = Memory::new();
         memory
-            .map_region(FUNC_TABLE_BASE, 4096, Permission::ALL, "func_table")
+            .map_region(
+                FUNC_TABLE_BASE,
+                FUNC_TABLE_SIZE,
+                Permission::ALL,
+                "func_table",
+            )
             .unwrap();
 
         let ft = FunctionTable::new();
@@ -291,6 +295,28 @@ mod tests {
         assert_eq!(val & 0xFF000000, 0xEF000000); // SVC instruction prefix
         assert_eq!(val & 0x00FFFFFF, 0x01); // SVC #1
         assert_eq!(memory.read_u32(ptr + 4).unwrap(), 0xE12FFF1E); // BX LR
+    }
+
+    #[test]
+    fn low_ram_framebuffer_does_not_overwrite_trampolines() {
+        const FRAMEBUFFER_ADDR: u32 = 0x000E_0010;
+        const FRAMEBUFFER_SIZE: usize = 320 * 240 * 2;
+
+        let mut memory = Memory::new();
+        memory.init_default().unwrap();
+        let ft = FunctionTable::new();
+        ft.setup_in_memory(&mut memory).unwrap();
+
+        let trampoline = memory
+            .read_u32(FUNC_TABLE_BASE + NativeFuncIndex::DiagPrintf as u32)
+            .unwrap();
+        let svc_instruction = memory.read_u32(trampoline).unwrap();
+
+        memory
+            .write_block(FRAMEBUFFER_ADDR, &vec![0xA5; FRAMEBUFFER_SIZE])
+            .unwrap();
+
+        assert_eq!(memory.read_u32(trampoline).unwrap(), svc_instruction);
     }
 
     #[test]

@@ -48,8 +48,8 @@ ARM machine code that is loaded at address `0x00A00000`.
 Address Range              Size    Description
 ──────────────────────────────────────────────────
 0x00000000 – 0x00FFFFFF   16 MB   RAM (code + data)
-0x00100000                 4 KB   Function table (HLE trampolines)
 0x00200000                 4 KB   Key state register
+0x009FF000                 4 KB   Function table (HLE trampolines)
 0x00A00000                 —      Code load address
 0x00EFFEB0                 —      Stack top (grows downward)
 0x01000000 – 0x01FFFFFF   16 MB   Video RAM (VRAM)
@@ -61,7 +61,7 @@ Address Range              Size    Description
 | Address | Name | Description |
 |---------|------|-------------|
 | `0x00A00000` | CODE_LOAD_ADDR | ARM code load address |
-| `0x00100000` | FUNC_TABLE_BASE | HLE function table base |
+| `0x009FF000` | FUNC_TABLE_BASE | HLE function table base |
 | `0x00200000` | KEY_STATE_ADDR | Button state register |
 | `0x01000000` | VRAM_BASE | Video RAM base |
 | `0x00F00000` | SP initial | Stack pointer initial value |
@@ -70,9 +70,9 @@ Address Range              Size    Description
 
 - **Pixel format**: RGB565 (16-bit, 5-6-5 bit layout)
 - **Resolution**: 320×240 (typical)
-- **Framebuffer**: Located in VRAM, converted to XRGB8888 for display
+- **Framebuffer**: Located at a game-selected RAM or VRAM address, converted to XRGB8888 for display
 
-The renderer reads RGB565 pixels from the framebuffer address in VRAM and
+The renderer reads RGB565 pixels from the framebuffer address in emulated memory and
 converts them to XRGB8888 (32-bit) for output:
 
 ```
@@ -96,5 +96,5 @@ intercepting SVC (Supervisor Call) instructions. The API modules include:
 - **NativeGE** — Graphics engine (framebuffer, sprites, text)
 - **eCos** — RTOS-like services (threads, mutexes)
 
-The function table at `0x00100000` contains trampolines that redirect SVC
+The function table at `0x009FF000` contains trampolines that redirect SVC
 calls to the emulator's HLE implementation.

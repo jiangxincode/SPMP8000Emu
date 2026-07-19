@@ -80,7 +80,8 @@ impl Emulator {
             .context("Failed to initialize memory")?;
 
         let function_table = FunctionTable::new();
-        let api = NGameApi::new();
+        let mut api = NGameApi::new();
+        api.set_cpu_frequency(header.cpu_freq());
 
         let resolution = header.default_resolution();
         let renderer = Renderer::new(resolution.0, resolution.1);
@@ -172,7 +173,10 @@ impl Emulator {
                 break;
             }
 
-            match self.cpu.step(&mut self.memory) {
+            let cpu_result = self.cpu.step(&mut self.memory);
+            self.api.advance_instructions(1);
+
+            match cpu_result {
                 Ok(crate::arm_cpu::CpuResult::Continue) => {}
                 Ok(crate::arm_cpu::CpuResult::SvcCall(svc_num)) => {
                     self.sync_cpu_registers_to_memory();

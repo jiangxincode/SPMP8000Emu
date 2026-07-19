@@ -2,8 +2,9 @@
 //
 // SPMP8000 memory map:
 // - 0x00000000 - 0x00FFFFFF: 16MB RAM (code + data)
+// - 0x009FF000 - 0x009FFFFF: HLE function table and trampolines
 // - 0x00A00000:              Code load address (from libgame.ld)
-// - 0x01000000 - 0x010FFFFF: 1MB Video memory / framebuffer
+// - 0x01000000 - 0x01FFFFFF: 16MB Video memory / framebuffer
 // - 0x02000000 - 0x02FFFFFF: Peripheral registers
 // - 0x00280000 - 0x00A00000: Firmware area (FW_START - FW_END)
 
@@ -93,10 +94,10 @@ pub const REG_CPSR: usize = 16;
 pub const CODE_LOAD_ADDR: u32 = 0x00A00000;
 pub const RAM_BASE: u32 = 0x00000000;
 pub const RAM_SIZE: u32 = 16 * 1024 * 1024; // 16MB
+pub const FUNC_TABLE_SIZE: u32 = 4096;
+pub const FUNC_TABLE_BASE: u32 = CODE_LOAD_ADDR - FUNC_TABLE_SIZE;
 pub const VRAM_BASE: u32 = 0x01000000;
 pub const VRAM_SIZE: u32 = 16 * 1024 * 1024; // 16MB
-pub const FUNC_TABLE_BASE: u32 = 0x00100000;
-pub const FUNC_TABLE_SIZE: u32 = 4096; // 4KB for function table
 pub const PERIPHERAL_BASE: u32 = 0x02000000;
 pub const PERIPHERAL_SIZE: u32 = 16 * 1024 * 1024; // 16MB
 pub const KEY_STATE_ADDR: u32 = 0x00200000; // Address for key state

@@ -64,8 +64,9 @@ pub struct NGameApi {
 
     // Timing state
     pub start_time: u64,
-    pub last_time_ms: u32,
     pub tick_count: u64,
+    elapsed_instructions: u64,
+    cpu_frequency: u32,
 
     // Resource table
     pub resource_table: Vec<(String, u32)>, // (name, addr)
@@ -99,8 +100,9 @@ impl NGameApi {
             game_dir: String::from("."),
 
             start_time: 0,
-            last_time_ms: 0,
             tick_count: 0,
+            elapsed_instructions: 0,
+            cpu_frequency: 1,
 
             resource_table: Vec::new(),
         }
@@ -109,6 +111,18 @@ impl NGameApi {
     /// Set the game directory for file operations
     pub fn set_game_dir(&mut self, dir: &str) {
         self.game_dir = dir.to_string();
+    }
+
+    pub(crate) fn set_cpu_frequency(&mut self, cpu_frequency: u32) {
+        self.cpu_frequency = cpu_frequency.max(1);
+    }
+
+    pub(crate) fn advance_instructions(&mut self, instructions: u64) {
+        self.elapsed_instructions = self.elapsed_instructions.saturating_add(instructions);
+    }
+
+    pub(crate) fn emulated_time_ms(&self) -> u32 {
+        (self.elapsed_instructions.saturating_mul(1000) / u64::from(self.cpu_frequency)) as u32
     }
 
     /// Update key state

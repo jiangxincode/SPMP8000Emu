@@ -118,10 +118,7 @@ impl NGameApi {
 
     /// NativeGE_getTime - Get time since application start
     pub fn native_ge_get_time(&mut self, memory: &mut Memory) {
-        let frame_time_ms = (self.tick_count * 33) as u32; // ~30fps = ~33ms per frame
-        let time_ms = frame_time_ms.max(self.last_time_ms.wrapping_add(1));
-        self.last_time_ms = time_ms;
-        memory.set_register(crate::memory::REG_R0, time_ms);
+        memory.set_register(crate::memory::REG_R0, self.emulated_time_ms());
     }
 
     /// NativeGE_showFPS - Toggle the firmware FPS overlay.
@@ -159,5 +156,29 @@ impl NGameApi {
         // We don't actually delay in the emulator
         // The timing is handled by the main loop
         memory.set_register(crate::memory::REG_R0, 0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory::REG_R0;
+
+    #[test]
+    fn native_ge_time_tracks_instruction_progress_not_poll_count() {
+        let mut api = NGameApi::new();
+        let mut memory = Memory::new();
+        api.set_cpu_frequency(1_000);
+        api.advance_instructions(10);
+
+        api.native_ge_get_time(&mut memory);
+        assert_eq!(memory.get_register(REG_R0), 10);
+
+        api.native_ge_get_time(&mut memory);
+        assert_eq!(memory.get_register(REG_R0), 10);
+
+        api.advance_instructions(5);
+        api.native_ge_get_time(&mut memory);
+        assert_eq!(memory.get_register(REG_R0), 15);
     }
 }
