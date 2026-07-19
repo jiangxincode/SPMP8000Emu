@@ -1,6 +1,6 @@
 // emuIf graphics API implementation
 
-use super::{NGameApi, Surface};
+use super::{GraphicsTransformation, NGameApi, Surface};
 use crate::memory::{Memory, VRAM_BASE};
 
 const SPRITE_TRANSPARENT_COLOR: u16 = 0xF81F;
@@ -302,6 +302,26 @@ impl NGameApi {
     pub fn mcatch_sprite(&mut self, memory: &mut Memory) {
         self.blit_surface(memory, true);
     }
+
+    /// MCatchSetTransformation - Transform the next blit around a reference point.
+    pub fn mcatch_set_transformation(&mut self, memory: &mut Memory) {
+        let reference_addr = memory.get_register(crate::memory::REG_R0);
+        let kind = memory.get_register(crate::memory::REG_R1) as u8;
+
+        if reference_addr == 0 || kind > 7 {
+            self.pending_transformation = None;
+            memory.set_register(crate::memory::REG_R0, 1);
+            return;
+        }
+
+        self.pending_transformation = Some(GraphicsTransformation {
+            reference_x: memory.read_u16(reference_addr).unwrap_or(0) as i16 as i32,
+            reference_y: memory.read_u16(reference_addr + 2).unwrap_or(0) as i16 as i32,
+            kind,
+        });
+        memory.set_register(crate::memory::REG_R0, 0);
+    }
+
     /// MCatchFillRect - Fill a rectangle with foreground color
     pub fn mcatch_fill_rect(&mut self, memory: &mut Memory) {
         let rect_addr = memory.get_register(crate::memory::REG_R0);
@@ -356,6 +376,7 @@ impl NGameApi {
         let img_id = memory.get_register(crate::memory::REG_R0) as u8;
         let rect_addr = memory.get_register(crate::memory::REG_R1);
         let at_addr = memory.get_register(crate::memory::REG_R2);
+        let transformation = self.pending_transformation.take();
 
         let Some(surface) = self.surfaces.get(&img_id).cloned() else {
             log::debug!("MCatch blit skipped: missing image id={}", img_id);
@@ -367,8 +388,8 @@ impl NGameApi {
         let src_y = memory.read_u16(rect_addr + 2).unwrap_or(0) as u32;
         let width = memory.read_u16(rect_addr + 4).unwrap_or(0) as u32;
         let height = memory.read_u16(rect_addr + 6).unwrap_or(0) as u32;
-        let dst_x = memory.read_u16(at_addr).unwrap_or(0) as u32;
-        let dst_y = memory.read_u16(at_addr + 2).unwrap_or(0) as u32;
+        let dst_x = memory.read_u16(at_addr).unwrap_or(0) as i16 as i32;
+        let dst_y = memory.read_u16(at_addr + 2).unwrap_or(0) as i16 as i32;
 
         log::debug!(
             "MCatch{}: id={} src=({}, {}) {}x{} dst=({}, {})",
@@ -389,23 +410,30 @@ impl NGameApi {
         let surface_height = surface.height as u32;
         let copy_w = width.min(surface_width.saturating_sub(src_x));
         let copy_h = height.min(surface_height.saturating_sub(src_y));
-        for y in 0..copy_h {
-            let py = dst_y + y;
-            if py >= self.framebuffer_height {
+        let (output_w, output_h) = transformed_dimensions(copy_w, copy_h, transformation);
+        let (reference_x, reference_y) = transformed_reference(copy_w, copy_h, transformation);
+        let origin_x = dst_x - reference_x;
+        let origin_y = dst_y - reference_y;
+
+        for y in 0..output_h {
+            let py = origin_y + y as i32;
+            if py < 0 || py >= self.framebuffer_height as i32 {
                 continue;
             }
-            for x in 0..copy_w {
-                let px = dst_x + x;
-                if px >= self.framebuffer_width {
+            for x in 0..output_w {
+                let px = origin_x + x as i32;
+                if px < 0 || px >= self.framebuffer_width as i32 {
                     continue;
                 }
 
-                let idx = self.read_surface_index(memory, &surface, src_x + x, src_y + y);
+                let (source_x, source_y) = transformed_source(x, y, copy_w, copy_h, transformation);
+                let idx =
+                    self.read_surface_index(memory, &surface, src_x + source_x, src_y + source_y);
                 if let Some(color) = self.read_surface_color(memory, &surface, idx) {
                     if sprite && color == SPRITE_TRANSPARENT_COLOR {
                         continue;
                     }
-                    let offset = py * self.framebuffer_pitch + px * 2;
+                    let offset = py as u32 * self.framebuffer_pitch + px as u32 * 2;
                     let _ = memory.write_u16(fb_addr + offset, color);
                 }
             }
@@ -473,6 +501,63 @@ impl NGameApi {
         }
 
         None
+    }
+}
+
+fn transformed_dimensions(
+    width: u32,
+    height: u32,
+    transformation: Option<GraphicsTransformation>,
+) -> (u32, u32) {
+    match transformation.map(|value| value.kind) {
+        Some(4..=7) => (height, width),
+        _ => (width, height),
+    }
+}
+
+fn transformed_reference(
+    width: u32,
+    height: u32,
+    transformation: Option<GraphicsTransformation>,
+) -> (i32, i32) {
+    let Some(transformation) = transformation else {
+        return (0, 0);
+    };
+    let max_x = width.saturating_sub(1) as i32;
+    let max_y = height.saturating_sub(1) as i32;
+    let x = transformation.reference_x;
+    let y = transformation.reference_y;
+
+    match transformation.kind {
+        0 => (x, y),
+        1 => (x, max_y - y),
+        2 => (max_x - x, y),
+        3 => (max_x - x, max_y - y),
+        4 => (y, x),
+        5 => (max_y - y, x),
+        6 => (y, max_x - x),
+        7 => (max_y - y, max_x - x),
+        _ => (0, 0),
+    }
+}
+
+fn transformed_source(
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    transformation: Option<GraphicsTransformation>,
+) -> (u32, u32) {
+    match transformation.map(|value| value.kind).unwrap_or(0) {
+        0 => (x, y),
+        1 => (x, height - 1 - y),
+        2 => (width - 1 - x, y),
+        3 => (width - 1 - x, height - 1 - y),
+        4 => (y, x),
+        5 => (y, height - 1 - x),
+        6 => (width - 1 - y, x),
+        7 => (width - 1 - y, height - 1 - x),
+        _ => (x, y),
     }
 }
 
@@ -551,5 +636,65 @@ mod tests {
 
         assert_eq!(memory.read_u16(VRAM_BASE).unwrap(), 0xFFFF);
         assert_eq!(memory.read_u16(VRAM_BASE + 2).unwrap(), 0x001F);
+    }
+
+    #[test]
+    fn sprite_mirror_keeps_reference_point_at_destination() {
+        const DATA_ADDR: u32 = 0x1000;
+        const PALETTE_ADDR: u32 = 0x1100;
+        const RECT_ADDR: u32 = 0x1200;
+        const AT_ADDR: u32 = 0x1300;
+        const REFERENCE_ADDR: u32 = 0x1400;
+
+        let mut api = NGameApi::new();
+        api.framebuffer_addr = Some(VRAM_BASE);
+        api.framebuffer_width = 3;
+        api.framebuffer_height = 2;
+        api.framebuffer_pitch = 6;
+        api.surfaces.insert(
+            1,
+            Surface {
+                data_addr: DATA_ADDR,
+                width: 3,
+                height: 2,
+                img_type: 1,
+                palette_addr: PALETTE_ADDR,
+                palette_entries: 7,
+            },
+        );
+
+        let mut memory = Memory::new();
+        memory
+            .map_region(DATA_ADDR, 0x1000, Permission::ALL, "RAM")
+            .unwrap();
+        memory
+            .map_region(VRAM_BASE, 0x1000, Permission::ALL, "VRAM")
+            .unwrap();
+        memory.write_block(DATA_ADDR, &[1, 2, 3, 4, 5, 6]).unwrap();
+        for index in 1..=6 {
+            memory
+                .write_u16(PALETTE_ADDR + index * 2, index as u16)
+                .unwrap();
+        }
+        memory.write_u16(RECT_ADDR + 4, 3).unwrap();
+        memory.write_u16(RECT_ADDR + 6, 2).unwrap();
+        memory.write_u16(AT_ADDR, 2).unwrap();
+        memory.write_u16(AT_ADDR + 2, 1).unwrap();
+        memory.write_u16(REFERENCE_ADDR, 0).unwrap();
+        memory.write_u16(REFERENCE_ADDR + 2, 1).unwrap();
+
+        memory.set_register(REG_R0, REFERENCE_ADDR);
+        memory.set_register(REG_R1, 2);
+        api.mcatch_set_transformation(&mut memory);
+        memory.set_register(REG_R0, 1);
+        memory.set_register(REG_R1, RECT_ADDR);
+        memory.set_register(REG_R2, AT_ADDR);
+        api.mcatch_sprite(&mut memory);
+
+        let pixels = (0..6)
+            .map(|index| memory.read_u16(VRAM_BASE + index * 2).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(pixels, vec![3, 2, 1, 6, 5, 4]);
+        assert!(api.pending_transformation.is_none());
     }
 }

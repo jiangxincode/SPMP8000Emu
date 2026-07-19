@@ -23,6 +23,13 @@ pub struct Surface {
     pub palette_entries: u16,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct GraphicsTransformation {
+    reference_x: i32,
+    reference_y: i32,
+    kind: u8,
+}
+
 /// File handle for emulated file system
 #[derive(Debug, Clone)]
 pub struct FileHandle {
@@ -45,6 +52,7 @@ pub struct NGameApi {
     pub color_rop: u8,
     pub surfaces: HashMap<u8, Surface>,
     pub next_surface_id: u8,
+    pending_transformation: Option<GraphicsTransformation>,
 
     // Audio state
     pub audio_buffer_addr: Option<u32>,
@@ -85,6 +93,7 @@ impl NGameApi {
             color_rop: 0xF0,
             surfaces: HashMap::new(),
             next_surface_id: 1,
+            pending_transformation: None,
 
             audio_buffer_addr: None,
             audio_buffer_size: 0,
@@ -188,6 +197,7 @@ impl NGameApi {
             0x27 => self.mcatch_enable_feature(memory),
             0x28 => self.mcatch_disable_feature(memory),
             0x29 => self.mcatch_set_camera_mode(memory),
+            0x10A0 => self.mcatch_set_transformation(memory),
             0x0D => self.mcatch_set_framebuffer(memory),
             0x0E => self.mcatch_get_framebuffer(memory),
             0x0F => self.mcatch_bitblt(memory),
