@@ -69,7 +69,6 @@ function Get-CaptureFrames {
     }
 
     switch -Wildcard ($BaseName) {
-        "DeepKiller*" { return 180 }
         "SmartBlocks*" { return 270 }
         default { return $DefaultFrames }
     }
