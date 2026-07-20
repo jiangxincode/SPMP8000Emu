@@ -125,8 +125,8 @@ SPCA556 chips. 44 out of 45 tested games load and render successfully.
 
 | Status | Count |
 |--------|-------|
-| ✅ Title screen rendered | 38 |
-| ⚠️ Blank frame (initialization incomplete) | 6 |
+| ✅ Title screen rendered | 40 |
+| ⚠️ Blank frame (initialization incomplete) | 4 |
 | ❌ Crash | 1 |
 
 For the full game list with screenshots, see [Game Compatibility](docs/Game-Compatibility.md).
