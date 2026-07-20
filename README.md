@@ -25,7 +25,7 @@ ARM-based CPU and HLE system API.
 - **NGame1.0 format support** — file loading, header parsing, DES decryption, LZ77 decompression
 - **ARM CPU emulation** — full ARM instruction set execution
 - **HLE system API** — emuIf, NativeGE, and eCos interfaces with instruction-driven timing
-- **Graphics rendering** — direct RGB565 and indexed surfaces, sprite transformations, 320×240 display
+- **Graphics rendering** — direct RGB565 and indexed-palette surfaces, sprite color-key transparency, 320×240 display
 - **Audio emulation** — PCM audio output at 22050 Hz
 - **Input handling** — keyboard input with configurable mappings
 - **RetroArch integration** — libretro core for RetroArch frontend
@@ -155,10 +155,11 @@ To refresh the compatibility screenshots, run:
 pwsh scripts/batch-screenshots.ps1
 ```
 
-The script rebuilds the release executable before capturing and uses tuned
-defaults for games with short title-screen windows. Pass `-Frames <count>` to
-use one explicit frame count for every game, or `-Binary <path>` to capture with
-an existing executable without rebuilding it.
+The script rebuilds the release executable before capturing, uses 300 frames by
+default, and captures SmartBlocks at 270 frames for its shorter title-screen
+window. Pass `-Frames <count>` to use one explicit frame count for every game,
+or `-Binary <path>` to capture with an existing executable without rebuilding
+it.
 
 ## Contributing
 

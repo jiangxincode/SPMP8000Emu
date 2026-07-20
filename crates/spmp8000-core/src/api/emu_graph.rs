@@ -3,7 +3,7 @@
 use super::{GraphicsTransformation, NGameApi, Surface};
 use crate::memory::{Memory, VRAM_BASE};
 
-const SPRITE_TRANSPARENT_COLOR: u16 = 0xF81F;
+const SPRITE_TRANSPARENT_COLORS: [u16; 2] = [0xF81B, 0xF81F];
 
 /// emuIf graphics parameter structure
 #[repr(C)]
@@ -420,7 +420,7 @@ impl NGameApi {
                 if let Some(color) =
                     self.read_surface_color(memory, &surface, src_x + source_x, src_y + source_y)
                 {
-                    if sprite && color == SPRITE_TRANSPARENT_COLOR {
+                    if sprite && SPRITE_TRANSPARENT_COLORS.contains(&color) {
                         continue;
                     }
                     let offset = py as u32 * self.framebuffer_pitch + px as u32 * 2;
@@ -465,9 +465,6 @@ impl NGameApi {
         if surface.palette_addr == 0 {
             let v = index as u16;
             return Some(((v & 0xF8) << 8) | ((v & 0xFC) << 3) | (v >> 3));
-        }
-        if surface.palette_entries != 0 && index as u16 >= surface.palette_entries {
-            return None;
         }
         memory
             .read_u16(surface.palette_addr + index as u32 * 2)
@@ -647,7 +644,35 @@ mod tests {
     }
 
     #[test]
-    fn sprite_uses_magenta_palette_entry_as_transparent() {
+    fn indexed_surface_accepts_palette_index_beyond_metadata() {
+        const DATA_ADDR: u32 = 0x1000;
+        const PALETTE_ADDR: u32 = 0x1100;
+
+        let api = NGameApi::new();
+        let surface = Surface {
+            data_addr: DATA_ADDR,
+            width: 1,
+            height: 1,
+            img_type: 1,
+            palette_addr: PALETTE_ADDR,
+            palette_entries: 4,
+        };
+
+        let mut memory = Memory::new();
+        memory
+            .map_region(DATA_ADDR, 0x1000, Permission::ALL, "RAM")
+            .unwrap();
+        memory.write_u8(DATA_ADDR, 0x8C).unwrap();
+        memory.write_u16(PALETTE_ADDR + 0x8C * 2, 0x07E0).unwrap();
+
+        assert_eq!(
+            api.read_surface_color(&memory, &surface, 0, 0),
+            Some(0x07E0)
+        );
+    }
+
+    #[test]
+    fn sprite_uses_observed_magenta_palette_entries_as_transparent() {
         const DATA_ADDR: u32 = 0x1000;
         const PALETTE_ADDR: u32 = 0x1100;
         const RECT_ADDR: u32 = 0x1200;
@@ -655,14 +680,14 @@ mod tests {
 
         let mut api = NGameApi::new();
         api.framebuffer_addr = Some(VRAM_BASE);
-        api.framebuffer_width = 2;
+        api.framebuffer_width = 3;
         api.framebuffer_height = 1;
-        api.framebuffer_pitch = 4;
+        api.framebuffer_pitch = 6;
         api.surfaces.insert(
             1,
             Surface {
                 data_addr: DATA_ADDR,
-                width: 2,
+                width: 3,
                 height: 1,
                 img_type: 1,
                 palette_addr: PALETTE_ADDR,
@@ -678,13 +703,16 @@ mod tests {
             .map_region(VRAM_BASE, 0x1000, Permission::ALL, "VRAM")
             .unwrap();
         memory.write_u8(DATA_ADDR, 2).unwrap();
-        memory.write_u8(DATA_ADDR + 1, 0).unwrap();
+        memory.write_u8(DATA_ADDR + 1, 1).unwrap();
+        memory.write_u8(DATA_ADDR + 2, 0).unwrap();
         memory.write_u16(PALETTE_ADDR, 0x001F).unwrap();
-        memory.write_u16(PALETTE_ADDR + 4, 0xF81F).unwrap();
-        memory.write_u16(RECT_ADDR + 4, 2).unwrap();
+        memory.write_u16(PALETTE_ADDR + 2, 0xF81F).unwrap();
+        memory.write_u16(PALETTE_ADDR + 4, 0xF81B).unwrap();
+        memory.write_u16(RECT_ADDR + 4, 3).unwrap();
         memory.write_u16(RECT_ADDR + 6, 1).unwrap();
         memory.write_u16(VRAM_BASE, 0xFFFF).unwrap();
         memory.write_u16(VRAM_BASE + 2, 0xFFFF).unwrap();
+        memory.write_u16(VRAM_BASE + 4, 0xFFFF).unwrap();
         memory.set_register(REG_R0, 1);
         memory.set_register(REG_R1, RECT_ADDR);
         memory.set_register(REG_R2, AT_ADDR);
@@ -692,7 +720,8 @@ mod tests {
         api.mcatch_sprite(&mut memory);
 
         assert_eq!(memory.read_u16(VRAM_BASE).unwrap(), 0xFFFF);
-        assert_eq!(memory.read_u16(VRAM_BASE + 2).unwrap(), 0x001F);
+        assert_eq!(memory.read_u16(VRAM_BASE + 2).unwrap(), 0xFFFF);
+        assert_eq!(memory.read_u16(VRAM_BASE + 4).unwrap(), 0x001F);
     }
 
     #[test]
