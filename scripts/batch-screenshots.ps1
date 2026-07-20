@@ -5,11 +5,14 @@
 .DESCRIPTION
     Runs the spmp8000-emu binary in screenshot mode (--screenshot) for every
     .bin file found under tmp/GameCollection (recursively).  Output PNGs are
-    saved to docs/images/, named after the game file (without extension).
+    saved to docs/images/, named after the game file (without extension). When
+    no binary is supplied, the latest release binary is built before capture.
 
 .PARAMETER Frames
     Number of frames to emulate before capturing.  Default: 300 (10 seconds at
-    30 fps — enough for slower title screens such as GoBang to appear).
+    30 fps — enough for slower title screens such as GoBang to appear). When
+    omitted, known games with shorter title-screen windows use tuned defaults.
+    Supplying this parameter applies the requested frame count to every game.
 
 .PARAMETER Binary
     Path to the spmp8000-emu binary.  Default: cargo build output.
@@ -21,6 +24,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$framesSpecified = $PSBoundParameters.ContainsKey("Frames")
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $gameDir  = Join-Path $repoRoot "tmp\GameCollection"
@@ -37,22 +41,48 @@ New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 # Resolve binary path
 if (-not $Binary) {
     $Binary = Join-Path $repoRoot "target\release\spmp8000-emu.exe"
-    if (-not (Test-Path $Binary)) {
-        Write-Host "Binary not found at $Binary, building..." -ForegroundColor Yellow
+    Write-Host "Building the latest release binary..." -ForegroundColor Yellow
+    try {
         Push-Location $repoRoot
         cargo build --release -p spmp8000-emu
-        Pop-Location
-        if (-not (Test-Path $Binary)) {
-            Write-Error "Build failed or binary not found."
-            exit 1
+        if ($LASTEXITCODE -ne 0) {
+            throw "Release build failed with exit code $LASTEXITCODE."
         }
+    } finally {
+        Pop-Location
+    }
+    if (-not (Test-Path $Binary)) {
+        Write-Error "Build succeeded but binary was not found at $Binary."
+        exit 1
+    }
+}
+
+function Get-CaptureFrames {
+    param(
+        [string]$BaseName,
+        [int]$DefaultFrames,
+        [bool]$UseTitleScreenOverrides
+    )
+
+    if (-not $UseTitleScreenOverrides) {
+        return $DefaultFrames
+    }
+
+    switch -Wildcard ($BaseName) {
+        "DeepKiller*" { return 180 }
+        "SmartBlocks*" { return 270 }
+        default { return $DefaultFrames }
     }
 }
 
 Write-Host "Using binary: $Binary"
 Write-Host "Game dir:     $gameDir"
 Write-Host "Output dir:   $outDir"
-Write-Host "Frames:       $Frames"
+if ($framesSpecified) {
+    Write-Host "Frames:       $Frames"
+} else {
+    Write-Host "Frames:       $Frames (with title-screen overrides)"
+}
 Write-Host ""
 
 # Collect all .bin files recursively
@@ -74,13 +104,14 @@ foreach ($game in $games) {
     # Sanitize: replace spaces and special chars with underscores
     $safeName = $baseName -replace '[^A-Za-z0-9_\-\.]', '_'
     $outPath  = Join-Path $outDir "$safeName.png"
+    $captureFrames = Get-CaptureFrames $baseName $Frames (-not $framesSpecified)
 
-    Write-Host -NoNewline "  $baseName ... "
+    Write-Host -NoNewline "  $baseName ($captureFrames frames) ... "
 
     $prevEA = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        $output = & $Binary $game.FullName --screenshot $outPath --screenshot-frames $Frames 2>&1
+        $output = & $Binary $game.FullName --screenshot $outPath --screenshot-frames $captureFrames 2>&1
         $exitCode = $LASTEXITCODE
         if ($exitCode -ne 0) {
             Write-Host "FAILED (exit $exitCode)" -ForegroundColor Red

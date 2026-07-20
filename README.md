@@ -149,6 +149,17 @@ default and only runs on demand:
 cargo test -p spmp8000-core --test screenshot -- --ignored --nocapture
 ```
 
+To refresh the compatibility screenshots, run:
+
+```powershell
+pwsh scripts/batch-screenshots.ps1
+```
+
+The script rebuilds the release executable before capturing and uses tuned
+defaults for games with short title-screen windows. Pass `-Frames <count>` to
+use one explicit frame count for every game, or `-Binary <path>` to capture with
+an existing executable without rebuilding it.
+
 ## Contributing
 
 Contributions are welcome! Whether you're interested in fixing bugs, adding
