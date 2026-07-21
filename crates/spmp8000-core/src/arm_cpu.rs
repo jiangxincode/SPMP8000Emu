@@ -375,6 +375,14 @@ impl ArmCpu {
             return self.execute_branch_exchange(instr);
         }
 
+        if (instr & 0x0FFF0FF0) == 0x016F0F10 {
+            let rd = (instr >> 12) & 0xF;
+            let rm = instr & 0xF;
+            self.regs
+                .set(rd, self.read_operand_register(rm).leading_zeros());
+            return Ok(CpuResult::Continue);
+        }
+
         if (instr & 0x0F8000F0) == 0x00800090 {
             return self.execute_multiply_long(instr);
         }
@@ -1016,6 +1024,22 @@ mod tests {
             .unwrap();
 
         assert_eq!(cpu.regs.r0, 6);
+    }
+
+    #[test]
+    fn test_count_leading_zeros() {
+        let mut cpu = ArmCpu::new().unwrap();
+        let mut memory = Memory::new();
+
+        cpu.regs.r1 = 0x0000_8000;
+        cpu.execute_arm_instruction(0xE16F2F11, &mut memory)
+            .unwrap();
+        assert_eq!(cpu.regs.r2, 16);
+
+        cpu.regs.r1 = 0;
+        cpu.execute_arm_instruction(0xE16F2F11, &mut memory)
+            .unwrap();
+        assert_eq!(cpu.regs.r2, 32);
     }
 
     #[test]

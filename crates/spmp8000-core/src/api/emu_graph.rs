@@ -531,6 +531,14 @@ fn transformed_source(
     }
 }
 
+fn valid_dimension(value: u32, fallback: u32) -> u32 {
+    if (1..=640).contains(&value) {
+        value
+    } else {
+        fallback
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -784,13 +792,5 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(pixels, vec![3, 2, 1, 6, 5, 4]);
         assert!(api.pending_transformation.is_none());
-    }
-}
-
-fn valid_dimension(value: u32, fallback: u32) -> u32 {
-    if (1..=640).contains(&value) {
-        value
-    } else {
-        fallback
     }
 }

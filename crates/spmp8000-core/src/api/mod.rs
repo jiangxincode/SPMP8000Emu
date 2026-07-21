@@ -503,10 +503,7 @@ impl NGameApi {
     fn ecos_fstat(&mut self, memory: &mut Memory) {
         let lr = memory.get_register(crate::memory::REG_LR);
         if lr == 0x00A52CC8 || lr == 0x00A52C84 || lr == 0x00A52C68 {
-            let frame_time_ms = (self.tick_count * 33) as u32;
-            let time_ms = frame_time_ms.max(self.last_time_ms.wrapping_add(1));
-            self.last_time_ms = time_ms;
-            memory.set_register(crate::memory::REG_R0, time_ms);
+            memory.set_register(crate::memory::REG_R0, self.emulated_time_ms());
             memory.set_register(crate::memory::REG_R1, 0);
             return;
         }

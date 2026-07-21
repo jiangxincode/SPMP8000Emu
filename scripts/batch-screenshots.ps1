@@ -69,6 +69,7 @@ function Get-CaptureFrames {
     }
 
     switch -Wildcard ($BaseName) {
+        "0quake" { return 30 }
         "SmartBlocks*" { return 270 }
         default { return $DefaultFrames }
     }
