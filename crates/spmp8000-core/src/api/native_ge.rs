@@ -1,6 +1,7 @@
 // NativeGE API implementation
 
 use super::NGameApi;
+use crate::audio_resource::{inspect_resource, valid_resource_size, AudioCommand};
 use crate::memory::Memory;
 
 /// Resource entry structure
@@ -69,14 +70,14 @@ impl NGameApi {
 
         // Find resource by name
         if let Some((_, data_ptr)) = self.resource_table.iter().find(|(n, _)| n == &name) {
-            // Write resource info
-            let _ = memory.write_u32(res_info_addr, *data_ptr);
-            // Size is typically stored before the data
-            let size = memory.read_u32(*data_ptr).unwrap_or(0);
-            let _ = memory.write_u32(res_info_addr + 4, size);
-
-            // Return resource type (1 = WAV, 2 = MIDI, etc.)
-            memory.set_register(crate::memory::REG_R0, 1);
+            if let Some((resource_type, size)) = inspect_resource(memory, *data_ptr) {
+                let _ = memory.write_u32(res_info_addr, *data_ptr);
+                let _ = memory.write_u32(res_info_addr + 4, size);
+                memory.set_register(crate::memory::REG_R0, resource_type);
+            } else {
+                log::warn!("Unsupported audio resource: {}", name);
+                memory.set_register(crate::memory::REG_R0, 0);
+            }
         } else {
             log::warn!("Resource not found: {}", name);
             memory.set_register(crate::memory::REG_R0, 0);
@@ -95,10 +96,17 @@ impl NGameApi {
         let data_addr = memory.read_u32(res_info_addr).unwrap_or(0);
         let size = memory.read_u32(res_info_addr + 4).unwrap_or(0);
 
-        if data_addr != 0 && size > 0 {
-            // Store audio buffer info for playback
-            self.audio_buffer_addr = Some(data_addr);
-            self.audio_buffer_size = size;
+        if data_addr != 0 && valid_resource_size(size as usize) {
+            match memory.read_block(data_addr, size as usize) {
+                Ok(data) => self.audio_commands.push(AudioCommand::Play {
+                    resource_type: res_type,
+                    repeat,
+                    data,
+                }),
+                Err(error) => log::warn!("Failed to read audio resource: {}", error),
+            }
+        } else if size > 0 {
+            log::warn!("Invalid audio resource size: {}", size);
         }
 
         memory.set_register(crate::memory::REG_R0, 0);
@@ -110,8 +118,9 @@ impl NGameApi {
 
         log::debug!("NativeGE_stopRes: type={}", res_type);
 
-        self.audio_buffer_addr = None;
-        self.audio_buffer_size = 0;
+        self.audio_commands.push(AudioCommand::Stop {
+            resource_type: res_type,
+        });
 
         memory.set_register(crate::memory::REG_R0, 0);
     }
@@ -163,6 +172,67 @@ impl NGameApi {
 mod tests {
     use super::*;
     use crate::memory::REG_R0;
+
+    fn wave_resource() -> Vec<u8> {
+        let mut wave = Vec::new();
+        wave.extend_from_slice(b"RIFF");
+        wave.extend_from_slice(&38u32.to_le_bytes());
+        wave.extend_from_slice(b"WAVEfmt \x10\0\0\0\x01\0\x01\0");
+        wave.extend_from_slice(&8_000u32.to_le_bytes());
+        wave.extend_from_slice(&8_000u32.to_le_bytes());
+        wave.extend_from_slice(&1u16.to_le_bytes());
+        wave.extend_from_slice(&8u16.to_le_bytes());
+        wave.extend_from_slice(b"data\x02\0\0\0\0\xff");
+        wave
+    }
+
+    #[test]
+    fn native_ge_reports_and_queues_wave_resources() {
+        const TABLE: u32 = 0x1000;
+        const NAME: u32 = 0x1100;
+        const INFO: u32 = 0x1200;
+        const DATA: u32 = 0x1400;
+
+        let mut api = NGameApi::new();
+        let mut memory = Memory::new();
+        memory
+            .map_region(0x1000, 4096, crate::memory::Permission::ALL, "audio")
+            .unwrap();
+        memory
+            .write_block(TABLE, b"effect.wav\0\0\0\0\0\0")
+            .unwrap();
+        memory.write_u32(TABLE + 16, DATA).unwrap();
+        memory
+            .write_block(TABLE + 20, b"TAEND\0\0\0\0\0\0\0\0\0\0\0")
+            .unwrap();
+        memory.write_u32(TABLE + 36, 0).unwrap();
+        memory.write_block(NAME, b"effect.wav\0").unwrap();
+        let wave = wave_resource();
+        memory.write_block(DATA, &wave).unwrap();
+
+        memory.set_register(crate::memory::REG_R1, TABLE);
+        api.native_ge_init_res(&mut memory);
+        memory.set_register(REG_R0, NAME);
+        memory.set_register(crate::memory::REG_R1, INFO);
+        api.native_ge_get_res(&mut memory);
+
+        assert_eq!(memory.get_register(REG_R0), 1);
+        assert_eq!(memory.read_u32(INFO).unwrap(), DATA);
+        assert_eq!(memory.read_u32(INFO + 4).unwrap(), wave.len() as u32);
+
+        memory.set_register(REG_R0, 1);
+        memory.set_register(crate::memory::REG_R1, 1);
+        memory.set_register(crate::memory::REG_R2, INFO);
+        api.native_ge_play_res(&mut memory);
+        assert!(matches!(
+            api.audio_commands.as_slice(),
+            [AudioCommand::Play {
+                resource_type: 1,
+                repeat: 1,
+                data
+            }] if data == &wave
+        ));
+    }
 
     #[test]
     fn native_ge_time_tracks_instruction_progress_not_poll_count() {

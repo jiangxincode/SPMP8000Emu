@@ -26,7 +26,7 @@ ARM-based CPU and HLE system API.
 - **ARM CPU emulation** — full ARM instruction set execution
 - **HLE system API** — emuIf, NativeGE, and eCos interfaces with instruction-driven timing
 - **Graphics rendering** — direct RGB565 and indexed-palette surfaces, sprite color-key transparency, 320×240 display
-- **Audio emulation** — PCM audio output at 22050 Hz
+- **Audio emulation** — WAV effects and MIDI music mixed to 22050 Hz stereo output
 - **Input handling** — keyboard input with configurable mappings
 - **RetroArch integration** — libretro core for RetroArch frontend
 - **Standalone mode** — minifb window with CLI
@@ -93,7 +93,8 @@ crates/
 │       ├── bin_loader.rs     # NGame1.0 BIN file parser
 │       ├── decompressor.rs   # DES decryption + LZ77 decompression
 │       ├── renderer.rs       # RGB565 → XRGB8888 framebuffer conversion
-│       ├── audio_engine.rs   # PCM audio output
+│       ├── audio_engine.rs   # Audio source mixing and frame output
+│       ├── audio_resource.rs # WAV decoding and MIDI synthesis
 │       ├── api.rs            # HLE system API (emuIf, NativeGE, eCos)
 │       ├── input_handler.rs  # Button state management
 │       ├── function_table.rs # HLE function trampolines

@@ -10,6 +10,7 @@ pub mod emu_key;
 pub mod emu_sound;
 pub mod native_ge;
 
+use crate::audio_resource::AudioCommand;
 use crate::memory::Memory;
 use std::collections::HashMap;
 
@@ -59,6 +60,7 @@ pub struct NGameApi {
     pub audio_buffer_size: u32,
     pub audio_sample_rate: u32,
     pub audio_channels: u32,
+    pub(crate) audio_commands: Vec<AudioCommand>,
 
     // Input state
     pub raw_key_state: u32,
@@ -99,6 +101,7 @@ impl NGameApi {
             audio_buffer_size: 0,
             audio_sample_rate: 22050,
             audio_channels: 1,
+            audio_commands: Vec::new(),
 
             raw_key_state: 0,
             key_state: 0,
@@ -142,6 +145,10 @@ impl NGameApi {
     /// Get current key state
     pub fn get_key_state(&self) -> u32 {
         self.key_state
+    }
+
+    pub(crate) fn take_audio_commands(&mut self) -> Vec<AudioCommand> {
+        std::mem::take(&mut self.audio_commands)
     }
 
     /// Allocate a new file descriptor

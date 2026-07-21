@@ -8,6 +8,7 @@
 pub mod api;
 pub mod arm_cpu;
 pub mod audio_engine;
+mod audio_resource;
 pub mod bin_loader;
 pub mod decompressor;
 pub mod emulator;
