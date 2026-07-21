@@ -43,7 +43,7 @@ it accordingly before placing it into RetroArch's `cores/` directory.
 ## Supported Features
 
 - Video output using the XRGB8888 pixel format
-- Stereo audio output (PCM)
+- Stereo audio output with WAVE effects and synthesized MIDI music
 - RetroPad input handling
 - `.bin` content loading (NGame1.0 format)
 - Save states

@@ -43,7 +43,7 @@ pub struct Emulator {
 
 impl Emulator {
     /// Create a new emulator from a game file path
-    pub fn from_path(path: PathBuf, _volume: u32) -> Result<Self> {
+    pub fn from_path(path: PathBuf, volume: u32) -> Result<Self> {
         log::info!("Loading game: {}", path.display());
 
         // Read the BIN file
@@ -85,7 +85,8 @@ impl Emulator {
 
         let resolution = header.default_resolution();
         let renderer = Renderer::new(resolution.0, resolution.1);
-        let audio = AudioEngine::new(22050);
+        let mut audio = AudioEngine::new(22050);
+        audio.set_volume(volume);
         let input = InputHandler::new();
 
         // Create emulator instance
@@ -237,11 +238,14 @@ impl Emulator {
         }
         self.renderer.update_from_memory(&self.memory);
 
-        // Update audio buffer
-        if let Some(addr) = self.api.audio_buffer_addr {
-            self.audio
-                .update_from_memory(&self.memory, addr, self.api.audio_buffer_size);
+        for command in self.api.take_audio_commands() {
+            self.audio.handle_command(command);
         }
+        let streamed_pcm = self
+            .api
+            .audio_buffer_addr
+            .map(|address| (address, self.api.audio_buffer_size, self.api.audio_channels));
+        self.audio.render_frame(&self.memory, streamed_pcm);
     }
 
     fn sync_cpu_registers_to_memory(&mut self) {

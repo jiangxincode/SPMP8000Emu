@@ -11,6 +11,10 @@ use clap::Parser;
 use minifb::{Key, Window, WindowOptions};
 use spmp8000_core::emulator::Emulator;
 
+mod audio_output;
+
+use audio_output::AudioOutput;
+
 /// SPMP8000 Game Emulator
 #[derive(Parser)]
 #[command(name = "spmp8000-emu")]
@@ -123,6 +127,14 @@ fn main() -> Result<()> {
     // Start emulation
     emu.start();
 
+    let audio_output = match AudioOutput::new(emu.get_audio_sample_rate() as u32) {
+        Ok(output) => Some(output),
+        Err(error) => {
+            log::warn!("Audio output is unavailable: {}", error);
+            None
+        }
+    };
+
     // Main loop
     let frame_duration = Duration::from_secs_f64(1.0 / 30.0);
     let mut frame_count = 0u32;
@@ -161,6 +173,9 @@ fn main() -> Result<()> {
 
         // Execute one frame
         emu.tick();
+        if let Some(output) = &audio_output {
+            output.submit(emu.get_audio_samples());
+        }
 
         // Update window with framebuffer
         let framebuffer = emu.get_framebuffer();

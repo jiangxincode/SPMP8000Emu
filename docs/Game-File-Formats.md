@@ -83,9 +83,16 @@ RGB565 pixel → R = (pixel >> 11) & 0x1F  → scale to 8-bit
 
 ## Audio Format
 
-- **Sample rate**: 22050 Hz
-- **Format**: PCM 16-bit signed
-- **Channels**: Mono (duplicated to stereo for output)
+NativeGE resource tables can contain RIFF/WAVE effects and Standard MIDI Files:
+
+- **WAVE input**: PCM, 8-bit or 16-bit, mono or stereo
+- **MIDI input**: format 0 or format 1 with tempo, channel, program, note, and controller events
+- **Output sample rate**: 22050 Hz
+- **Output format**: interleaved stereo, signed 16-bit PCM
+
+WAVE resources are decoded and resampled to the output rate. MIDI resources are
+synthesized by the emulator. NativeGE keeps one active resource per type, which
+allows background MIDI music and WAVE effects to play at the same time.
 
 ## System API (HLE)
 

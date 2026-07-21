@@ -46,6 +46,17 @@ spmp8000-emu [OPTIONS] <GAME_PATH>
 
 `--screenshot-frames` only has an effect together with `--screenshot`.
 
+## Audio Output
+
+The standalone emulator sends WAVE sound effects and synthesized MIDI music to
+the system's default audio output device. Audio is converted automatically from
+the emulator's 22050 Hz stereo stream to the device's native sample rate and
+channel count. `--volume` scales the mixed output; use `--volume 0` to mute it.
+
+If no supported output device is available, the emulator logs a warning and
+continues without audio. Headless and screenshot modes do not open an audio
+device.
+
 ## Default Key Mappings
 
 | Physical Key | Action |
