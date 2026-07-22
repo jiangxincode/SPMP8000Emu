@@ -75,8 +75,8 @@ pub struct NGameApi {
     // Timing state
     pub start_time: u64,
     pub tick_count: u64,
-    elapsed_instructions: u64,
-    cpu_frequency: u32,
+    pub(crate) elapsed_instructions: u64,
+    pub(crate) cpu_frequency: u32,
 
     // Resource table
     pub resource_table: Vec<(String, u32)>, // (name, addr)

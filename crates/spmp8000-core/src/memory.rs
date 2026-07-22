@@ -286,6 +286,11 @@ impl Memory {
     pub fn regions(&self) -> &[MemoryRegion] {
         &self.regions
     }
+
+    /// Get mutable access to all regions (for save state restore)
+    pub fn regions_mut(&mut self) -> &mut [MemoryRegion] {
+        &mut self.regions
+    }
 }
 
 impl Default for Memory {

@@ -248,17 +248,41 @@ pub extern "C" fn retro_load_game_special(
 
 #[no_mangle]
 pub extern "C" fn retro_serialize_size() -> usize {
-    0
+    unsafe {
+        match EMULATOR.as_ref() {
+            Some(emu) => emu.serialize_size(),
+            None => 0,
+        }
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn retro_serialize(_data: *mut c_void, _size: usize) -> bool {
-    false
+pub extern "C" fn retro_serialize(data: *mut c_void, size: usize) -> bool {
+    unsafe {
+        match EMULATOR.as_mut() {
+            Some(emu) => {
+                if size < emu.serialize_size() {
+                    return false;
+                }
+                let buffer = std::slice::from_raw_parts_mut(data as *mut u8, size);
+                emu.serialize(buffer).is_ok()
+            }
+            None => false,
+        }
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn retro_unserialize(_data: *const c_void, _size: usize) -> bool {
-    false
+pub extern "C" fn retro_unserialize(data: *const c_void, size: usize) -> bool {
+    unsafe {
+        match EMULATOR.as_mut() {
+            Some(emu) => {
+                let buffer = std::slice::from_raw_parts(data as *const u8, size);
+                emu.deserialize(buffer).is_ok()
+            }
+            None => false,
+        }
+    }
 }
 
 #[no_mangle]

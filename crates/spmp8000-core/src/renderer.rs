@@ -7,7 +7,7 @@ use std::path::Path;
 use crate::memory::Memory;
 
 /// Framebuffer format
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum PixelFormat {
     RGB565,
     XRGB8888,

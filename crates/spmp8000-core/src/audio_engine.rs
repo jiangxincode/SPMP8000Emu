@@ -60,7 +60,7 @@ pub struct AudioEngine {
     /// Interleaved stereo samples generated for the current video frame
     buffer: Vec<i16>,
     resource_playbacks: HashMap<u32, Playback>,
-    volume: f32,
+    pub(crate) volume: f32,
 }
 
 impl AudioEngine {
