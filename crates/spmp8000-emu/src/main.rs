@@ -51,6 +51,10 @@ struct Cli {
     /// Number of frames to run before taking screenshot
     #[arg(long = "screenshot-frames", default_value = "30")]
     screenshot_frames: u32,
+
+    /// Cheat rules to apply (repeatable), e.g. "mem:0x00A00100=0xFF" or "reg:r0=42"
+    #[arg(long = "cheat")]
+    cheats: Vec<String>,
 }
 
 fn main() -> Result<()> {
@@ -72,6 +76,13 @@ fn main() -> Result<()> {
     // Create the emulator
     let mut emu = Emulator::from_path(cli.game_path.clone(), cli.volume)
         .context("Failed to create emulator")?;
+
+    // Apply cheats
+    for cheat in &cli.cheats {
+        if let Err(e) = emu.cheats.add_code(cheat) {
+            log::warn!("Ignoring invalid cheat '{}': {}", cheat, e);
+        }
+    }
 
     let (width, height) = emu.get_resolution();
     let display_width = width * cli.scale;
