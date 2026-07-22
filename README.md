@@ -122,13 +122,14 @@ crates/
 ## Game Compatibility
 
 The emulator supports games in NGame1.0 format (`.bin` files) for SPMP8000 and
-SPCA556 chips. 44 out of 45 tested games load and render successfully.
+SPCA556 chips. All 45 tested games now load without crashing, and 41 render a
+recognizable title or startup screen.
 
 | Status | Count |
 |--------|-------|
-| ✅ Title screen rendered | 40 |
-| ⚠️ Blank frame (initialization incomplete) | 4 |
-| ❌ Crash | 1 |
+| ✅ Title/start screen rendered | 41 |
+| ⚠️ Blank or corrupt frame | 4 |
+| ❌ Crash | 0 |
 
 For the full game list with screenshots, see [Game Compatibility](docs/Game-Compatibility.md).
 
@@ -157,8 +158,8 @@ pwsh scripts/batch-screenshots.ps1
 ```
 
 The script rebuilds the release executable before capturing, uses 300 frames by
-default, and captures SmartBlocks at 270 frames for its shorter title-screen
-window. Pass `-Frames <count>` to use one explicit frame count for every game,
+default, and uses tuned capture points for games with shorter title-screen
+windows. Pass `-Frames <count>` to use one explicit frame count for every game,
 or `-Binary <path>` to capture with an existing executable without rebuilding
 it.
 

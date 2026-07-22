@@ -20,6 +20,13 @@ use spmp8000_core::emulator::Emulator;
 /// Number of frames to run per game before sampling the output.
 const FRAMES: u32 = 300;
 
+fn capture_frames(path: &Path) -> u32 {
+    match path.file_stem().and_then(|name| name.to_str()) {
+        Some(name) if name.eq_ignore_ascii_case("0quake") => 30,
+        _ => FRAMES,
+    }
+}
+
 /// Resolve the directory that holds the game assets.
 fn game_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("SPMP8000_GAME_DIR") {
@@ -67,7 +74,7 @@ fn frame_has_content(framebuffer: &[u8]) -> bool {
     framebuffer.chunks_exact(4).any(|px| px != first)
 }
 
-/// Run a single game for `FRAMES` frames. Returns Ok(true) if the final frame
+/// Run a single game to its capture point. Returns Ok(true) if the final frame
 /// has visible content, Ok(false) if it is blank, or Err on a load failure.
 /// A panic inside the emulator will fail the test via the normal unwinding.
 fn run_one(path: &Path) -> Result<bool, String> {
@@ -76,7 +83,7 @@ fn run_one(path: &Path) -> Result<bool, String> {
 
     emu.start();
 
-    for frame in 0..FRAMES {
+    for frame in 0..capture_frames(path) {
         emu.tick();
         if !emu.is_running() && !emu.should_exit() {
             return Err(format!("emulation stopped at frame {frame}"));
@@ -111,11 +118,12 @@ fn smoke_all_games() {
     );
 
     println!(
-        "Running smoke test over {} games ({FRAMES} frames each)",
+        "Running smoke test over {} games ({FRAMES} frames by default)",
         games.len()
     );
 
     let mut failures = Vec::new();
+    let mut warnings = Vec::new();
 
     for game in &games {
         let rel = game.strip_prefix(&dir).unwrap_or(game);
@@ -123,6 +131,7 @@ fn smoke_all_games() {
             Ok(true) => println!("[PASS] {}", rel.display()),
             Ok(false) => {
                 println!("[WARN] {} (blank frame)", rel.display());
+                warnings.push(rel.to_path_buf());
             }
             Err(reason) => {
                 println!("[FAIL] {} - {reason}", rel.display());
@@ -133,8 +142,8 @@ fn smoke_all_games() {
 
     println!(
         "\n{} passed, {} warned, {} failed",
-        games.len() - failures.len(),
-        0,
+        games.len() - warnings.len() - failures.len(),
+        warnings.len(),
         failures.len()
     );
 

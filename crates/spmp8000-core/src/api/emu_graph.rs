@@ -28,8 +28,8 @@ impl NGameApi {
 
         // Read parameters from memory
         let pixels = memory.read_u32(params_addr).unwrap_or(0);
-        let width = memory.read_u32(params_addr + 4).unwrap_or(320);
-        let height = memory.read_u32(params_addr + 8).unwrap_or(240);
+        let width = valid_dimension(memory.read_u32(params_addr + 4).unwrap_or(0), 320);
+        let height = valid_dimension(memory.read_u32(params_addr + 8).unwrap_or(0), 240);
 
         log::info!(
             "emuIfGraphInit: {}x{} framebuffer at 0x{:08X}",
@@ -38,7 +38,9 @@ impl NGameApi {
             pixels
         );
 
-        self.framebuffer_addr = Some(pixels);
+        if pixels != 0 {
+            self.framebuffer_addr = Some(pixels);
+        }
         self.framebuffer_width = width;
         self.framebuffer_height = height;
         self.framebuffer_pitch = width * 2; // RGB565
@@ -60,8 +62,8 @@ impl NGameApi {
 
         if params_addr != 0 {
             let pixels = memory.read_u32(params_addr).unwrap_or(0);
-            let width = memory.read_u32(params_addr + 4).unwrap_or(320);
-            let height = memory.read_u32(params_addr + 8).unwrap_or(240);
+            let width = valid_dimension(memory.read_u32(params_addr + 4).unwrap_or(0), 320);
+            let height = valid_dimension(memory.read_u32(params_addr + 8).unwrap_or(0), 240);
 
             log::info!("emuIfGraphChgView: {}x{}", width, height);
 
@@ -526,6 +528,14 @@ fn transformed_source(
         6 => (width - 1 - y, x),
         7 => (width - 1 - y, height - 1 - x),
         _ => (x, y),
+    }
+}
+
+fn valid_dimension(value: u32, fallback: u32) -> u32 {
+    if (1..=640).contains(&value) {
+        value
+    } else {
+        fallback
     }
 }
 
