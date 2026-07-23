@@ -7,7 +7,7 @@ use crate::memory::Memory;
 use anyhow::Result;
 
 /// ARM CPU registers
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ArmRegisters {
     pub r0: u32,
     pub r1: u32,

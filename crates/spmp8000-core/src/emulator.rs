@@ -11,6 +11,7 @@ use crate::api::NGameApi;
 use crate::arm_cpu::ArmCpu;
 use crate::audio_engine::AudioEngine;
 use crate::bin_loader::{self, NGameHeader};
+use crate::cheats::CheatManager;
 use crate::decompressor;
 use crate::function_table::FunctionTable;
 use crate::input_handler::InputHandler;
@@ -34,6 +35,9 @@ pub struct Emulator {
     pub renderer: Renderer,
     pub audio: AudioEngine,
     pub input: InputHandler,
+
+    // Cheats
+    pub cheats: CheatManager,
 
     // State
     pub tick_count: u64,
@@ -100,6 +104,7 @@ impl Emulator {
             renderer,
             audio,
             input,
+            cheats: CheatManager::new(),
             tick_count: 0,
             is_running: false,
             exit_requested: false,
@@ -237,6 +242,9 @@ impl Emulator {
                 .set_dimensions(self.api.framebuffer_width, self.api.framebuffer_height);
         }
         self.renderer.update_from_memory(&self.memory);
+
+        // Apply cheats after CPU execution so modified state is visible this frame
+        self.cheats.apply(&mut self.cpu, &mut self.memory);
 
         for command in self.api.take_audio_commands() {
             self.audio.handle_command(command);

@@ -18,6 +18,8 @@ serde_json.workspace = true
 image.workspace = true
 # Byte manipulation
 byteorder = "1"
+# CRC32 checksum for save-state integrity
+crc32fast = "1"
 
 [dev-dependencies]
 tempfile = "3"

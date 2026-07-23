@@ -22,14 +22,14 @@ ARM-based CPU and HLE system API.
 
 ## Features
 
-- **NGame1.0 format support** — file loading, header parsing, DES decryption, LZ77 decompression
-- **ARM CPU emulation** — full ARM instruction set execution
+- **NGame1.0 format support** — file loading, header parsing, DES decryption, LZ77/RLE decompression
+- **ARM CPU emulation** — ARM mode instruction set (data processing, load/store, block transfer, branch, multiply, SVC)
 - **HLE system API** — emuIf, NativeGE, and eCos interfaces with instruction-driven timing
-- **Graphics rendering** — direct RGB565 and indexed-palette surfaces, sprite color-key transparency, 320×240 display
-- **Audio emulation** — WAV effects and MIDI music mixed to 22050 Hz stereo output
+- **Graphics rendering** — direct RGB565 and indexed-palette surfaces, sprite color-key transparency, 8 transformation modes, 320×240 display
+- **Audio emulation** — WAV decoding and MIDI synthesis (16-channel, multi-voice) mixed to 22050 Hz stereo output
 - **Input handling** — keyboard input with configurable mappings
 - **RetroArch integration** — libretro core for RetroArch frontend
-- **Standalone mode** — minifb window with CLI
+- **Standalone mode** — minifb window with CLI (headless mode, screenshot capture)
 - **Cross-platform** — Windows, macOS, Linux, Android, iOS, webOS
 - **Headless mode** — run without a window for testing and batch processing
 - **Screenshot capture** — automated PNG screenshot generation
@@ -91,17 +91,24 @@ crates/
 │       ├── arm_cpu.rs        # ARM CPU emulation
 │       ├── memory.rs         # Memory map (RAM, VRAM, peripherals)
 │       ├── bin_loader.rs     # NGame1.0 BIN file parser
-│       ├── decompressor.rs   # DES decryption + LZ77 decompression
+│       ├── decompressor.rs   # DES decryption + LZ77/RLE decompression
 │       ├── renderer.rs       # RGB565 → XRGB8888 framebuffer conversion
 │       ├── audio_engine.rs   # Audio source mixing and frame output
 │       ├── audio_resource.rs # WAV decoding and MIDI synthesis
-│       ├── api.rs            # HLE system API (emuIf, NativeGE, eCos)
 │       ├── input_handler.rs  # Button state management
 │       ├── function_table.rs # HLE function trampolines
-│       └── save_state.rs     # Save/load state
+│       ├── save_state.rs     # Save/load state
+│       └── api/              # HLE system API (emuIf, NativeGE, eCos)
+│           ├── mod.rs        # SVC dispatch and API state
+│           ├── emu_graph.rs  # Graphics API (MCatch, emuIf graph)
+│           ├── emu_sound.rs  # Sound API (emuIf sound)
+│           ├── emu_key.rs    # Input API (emuIf + NativeGE keys)
+│           ├── emu_fs.rs     # Filesystem API (emuIf + NativeGE fs)
+│           └── native_ge.rs  # NativeGE resource/system API
 ├── spmp8000-emu/             # Standalone binary (→ spmp8000-emu)
 │   └── src/
-│       └── main.rs           # Window loop, CLI, keyboard input
+│       ├── main.rs           # Window loop, CLI, keyboard input
+│       └── audio_output.rs   # cpal-based audio output with resampling
 └── spmp8000-libretro/        # libretro cdylib (→ spmp8000_libretro.{dll,so,dylib})
     └── src/
         ├── lib.rs            # cdylib crate root
