@@ -258,17 +258,55 @@ pub extern "C" fn retro_load_game_special(
 
 #[no_mangle]
 pub extern "C" fn retro_serialize_size() -> usize {
-    0
+    unsafe {
+        match EMULATOR.as_ref() {
+            Some(emu) => emu.serialize_size(),
+            None => 0,
+        }
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn retro_serialize(_data: *mut c_void, _size: usize) -> bool {
-    false
+pub extern "C" fn retro_serialize(data: *mut c_void, size: usize) -> bool {
+    unsafe {
+        let Some(emu) = EMULATOR.as_ref() else {
+            return false;
+        };
+        let required_size = emu.serialize_size();
+        if data.is_null() || size < required_size {
+            return false;
+        }
+
+        let buffer = std::slice::from_raw_parts_mut(data as *mut u8, required_size);
+        match emu.serialize(buffer) {
+            Ok(()) => true,
+            Err(error) => {
+                log::error!("Failed to serialize game state: {}", error);
+                false
+            }
+        }
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn retro_unserialize(_data: *const c_void, _size: usize) -> bool {
-    false
+pub extern "C" fn retro_unserialize(data: *const c_void, size: usize) -> bool {
+    unsafe {
+        let Some(emu) = EMULATOR.as_mut() else {
+            return false;
+        };
+        if data.is_null() || size == 0 {
+            return false;
+        }
+
+        let buffer = std::slice::from_raw_parts(data as *const u8, size);
+        match emu.deserialize(buffer) {
+            Ok(()) => true,
+            Err(error) => {
+                log::error!("Failed to restore game state: {}", error);
+                false
+            }
+        }
+    }
 }
 
 #[no_mangle]
@@ -432,7 +470,7 @@ mod tests {
         assert!(workspace_manifest.contains("\"crates/spmp8000emu-libretro\""));
         assert!(buildbot_config.contains("CORENAME: spmp8000emu"));
         assert!(core_info.contains("corename = \"spmp8000emu\""));
-        assert!(core_info.contains("savestate = \"false\""));
+        assert!(core_info.contains("savestate = \"true\""));
         assert!(core_info.contains("input_descriptors = \"true\""));
         assert!(core_info.contains("core_options = \"false\""));
     }

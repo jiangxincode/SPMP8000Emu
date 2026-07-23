@@ -5,16 +5,17 @@
 use std::path::Path;
 
 use crate::memory::Memory;
+use serde::{Deserialize, Serialize};
 
 /// Framebuffer format
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PixelFormat {
     RGB565,
     XRGB8888,
 }
 
 /// Renderer state
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Renderer {
     /// Display width
     pub width: u32,
@@ -120,6 +121,25 @@ impl Renderer {
         self.height = height;
         let fb_size = (width * height * 4) as usize;
         self.framebuffer.resize(fb_size, 0);
+    }
+
+    pub(crate) fn validate_state(&self) -> anyhow::Result<()> {
+        if !(1..=640).contains(&self.width) || !(1..=480).contains(&self.height) {
+            anyhow::bail!("save state contains invalid renderer dimensions");
+        }
+        let expected_size = usize::try_from(self.width)
+            .ok()
+            .and_then(|width| {
+                usize::try_from(self.height)
+                    .ok()
+                    .and_then(|height| width.checked_mul(height))
+            })
+            .and_then(|pixels| pixels.checked_mul(4))
+            .ok_or_else(|| anyhow::anyhow!("save-state framebuffer size overflow"))?;
+        if self.framebuffer.len() != expected_size {
+            anyhow::bail!("save state contains an invalid renderer framebuffer");
+        }
+        Ok(())
     }
 
     /// Save the current framebuffer as a PNG image.

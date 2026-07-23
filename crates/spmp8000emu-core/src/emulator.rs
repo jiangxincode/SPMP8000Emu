@@ -287,6 +287,110 @@ impl Emulator {
         log::info!("Emulation stopped");
     }
 
+    /// Get the fixed libretro serialization capacity.
+    pub fn serialize_size(&self) -> usize {
+        crate::save_state::SERIALIZED_SIZE
+    }
+
+    /// Serialize the complete mutable runtime state.
+    pub fn serialize(&self, buffer: &mut [u8]) -> Result<()> {
+        use crate::save_state::{EmulatorStateRef, MEMORY_LAYOUT_VERSION};
+
+        let state = EmulatorStateRef {
+            memory_layout_version: MEMORY_LAYOUT_VERSION,
+            cpu: &self.cpu,
+            memory: &self.memory,
+            api: &self.api,
+            renderer: &self.renderer,
+            audio: &self.audio,
+            input: &self.input,
+            tick_count: self.tick_count,
+            is_running: self.is_running,
+            exit_requested: self.exit_requested,
+        };
+        crate::save_state::encode(&state, self.content_crc32(), buffer)
+    }
+
+    /// Restore a complete runtime state without mutating the current state on failure.
+    pub fn deserialize(&mut self, buffer: &[u8]) -> Result<()> {
+        use crate::save_state::MEMORY_LAYOUT_VERSION;
+
+        let state = crate::save_state::decode(buffer, self.content_crc32())?;
+        if state.memory_layout_version != MEMORY_LAYOUT_VERSION {
+            anyhow::bail!(
+                "unsupported save-state memory layout {}",
+                state.memory_layout_version
+            );
+        }
+
+        state.memory.validate_state()?;
+        state
+            .api
+            .validate_state(&self.api.game_dir, self.header.cpu_freq())?;
+        state.renderer.validate_state()?;
+        state.audio.validate_state()?;
+        state.input.validate_state()?;
+        if state.api.tick_count != state.tick_count {
+            anyhow::bail!("save state contains inconsistent tick counters");
+        }
+        Self::validate_optional_address(
+            &state.memory,
+            state.api.framebuffer_addr,
+            "HLE framebuffer",
+        )?;
+        Self::validate_optional_address(
+            &state.memory,
+            state.api.display_screen_addr,
+            "HLE display screen",
+        )?;
+        Self::validate_optional_address(
+            &state.memory,
+            state.api.audio_buffer_addr,
+            "HLE audio buffer",
+        )?;
+        Self::validate_optional_address(
+            &state.memory,
+            state.renderer.fb_addr,
+            "renderer framebuffer",
+        )?;
+
+        let replacement = Self {
+            header: self.header.clone(),
+            game_path: self.game_path.clone(),
+            boot_code: Arc::clone(&self.boot_code),
+            cpu: state.cpu,
+            memory: state.memory,
+            function_table: FunctionTable::new(),
+            api: state.api,
+            renderer: state.renderer,
+            audio: state.audio,
+            input: state.input,
+            tick_count: state.tick_count,
+            is_running: state.is_running,
+            exit_requested: state.exit_requested,
+        };
+        *self = replacement;
+        log::info!("Emulator state restored");
+        Ok(())
+    }
+
+    fn content_crc32(&self) -> u32 {
+        crc32fast::hash(&self.boot_code)
+    }
+
+    fn validate_optional_address(
+        memory: &Memory,
+        address: Option<u32>,
+        description: &str,
+    ) -> Result<()> {
+        if let Some(address) = address {
+            memory
+                .read_u8(address)
+                .with_context(|| format!("save state contains an invalid {description} address"))?;
+        }
+        Ok(())
+    }
+
     /// Rebuild all mutable runtime state from the cached boot image.
     pub fn reset(&mut self) -> Result<()> {
         let debug_enabled = self.cpu.debug;
@@ -342,12 +446,18 @@ impl Emulator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::FileHandle;
+    use crate::api::{FileHandle, Surface};
+    use crate::audio_resource::{AudioCommand, RESOURCE_TYPE_WAV};
     use crate::bin_loader::ChipType;
     use crate::input_handler::BUTTON_O;
-    use crate::memory::{FUNC_TABLE_BASE, PERIPHERAL_BASE, RAM_BASE, VRAM_BASE};
+    use crate::memory::{FUNC_TABLE_BASE, PERIPHERAL_BASE, RAM_BASE, REG_R5, VRAM_BASE};
+    use crate::renderer::PixelFormat;
 
     fn test_emulator(volume: u32) -> Emulator {
+        test_emulator_with_code(volume, &[0x01, 0x02, 0x03, 0x04])
+    }
+
+    fn test_emulator_with_code(volume: u32, boot_code: &[u8]) -> Emulator {
         let header = NGameHeader {
             magic: *b"NGame1.0",
             flags: 0x8000_0000,
@@ -356,7 +466,7 @@ mod tests {
             game_name: "Reset Test".to_string(),
             media_type: "Sunmedia".to_string(),
             version: "1.0".to_string(),
-            code_size: 4,
+            code_size: boot_code.len() as u32,
             file_size: 0x84,
             data_offset: 0x80,
         };
@@ -364,11 +474,30 @@ mod tests {
         Emulator::from_loaded_game(
             PathBuf::from("games/reset-test.bin"),
             header,
-            Arc::from([0x01, 0x02, 0x03, 0x04]),
+            Arc::from(boot_code),
             volume,
             InputHandler::new(),
         )
         .unwrap()
+    }
+
+    fn wave_resource() -> Vec<u8> {
+        let samples = [0u8, 255, 0, 255];
+        let mut wave = Vec::new();
+        wave.extend_from_slice(b"RIFF");
+        wave.extend_from_slice(&(36 + samples.len() as u32).to_le_bytes());
+        wave.extend_from_slice(b"WAVEfmt ");
+        wave.extend_from_slice(&16u32.to_le_bytes());
+        wave.extend_from_slice(&1u16.to_le_bytes());
+        wave.extend_from_slice(&1u16.to_le_bytes());
+        wave.extend_from_slice(&22_050u32.to_le_bytes());
+        wave.extend_from_slice(&22_050u32.to_le_bytes());
+        wave.extend_from_slice(&1u16.to_le_bytes());
+        wave.extend_from_slice(&8u16.to_le_bytes());
+        wave.extend_from_slice(b"data");
+        wave.extend_from_slice(&(samples.len() as u32).to_le_bytes());
+        wave.extend_from_slice(&samples);
+        wave
     }
 
     #[test]
@@ -481,5 +610,168 @@ mod tests {
             emu.memory.read_u32(memory::CODE_LOAD_ADDR).unwrap(),
             0x0403_0201
         );
+    }
+
+    #[test]
+    fn save_state_round_trip_restores_the_complete_runtime() {
+        let mut emu = test_emulator(37);
+        emu.cpu.thumb_mode = true;
+        emu.cpu.instruction_count = 123_456;
+        emu.cpu.regs.r4 = 0xDEAD_BEEF;
+        emu.cpu.regs.cpsr = 0xA000_001F;
+        emu.memory
+            .write_u32(RAM_BASE + 0x1000, 0x1111_1111)
+            .unwrap();
+        emu.memory.write_u32(VRAM_BASE, 0x2222_2222).unwrap();
+        emu.memory.write_u32(PERIPHERAL_BASE, 0x3333_3333).unwrap();
+        emu.memory.set_register(REG_R5, 0xCAFE_BABE);
+
+        emu.api.framebuffer_addr = Some(VRAM_BASE);
+        emu.api.display_screen_addr = Some(VRAM_BASE + 0x100);
+        emu.api.framebuffer_width = 160;
+        emu.api.framebuffer_height = 120;
+        emu.api.framebuffer_pitch = 320;
+        emu.api.fg_color = [1, 2, 3];
+        emu.api.color_rop = 0xCC;
+        emu.api.surfaces.insert(
+            7,
+            Surface {
+                data_addr: RAM_BASE + 0x4000,
+                width: 16,
+                height: 8,
+                img_type: 1,
+                palette_addr: RAM_BASE + 0x5000,
+                palette_entries: 16,
+            },
+        );
+        emu.api.next_surface_id = 8;
+        emu.api.audio_buffer_size = 128;
+        emu.api.audio_sample_rate = 44_100;
+        emu.api.audio_channels = 2;
+        emu.api.raw_key_state = 0x12;
+        emu.api.key_state = 0x34;
+        emu.api.key_map[0] = 0x56;
+        emu.api.open_files.insert(
+            3,
+            FileHandle {
+                host_path: "games/save.dat".to_string(),
+                position: 4,
+                size: 8,
+                is_writable: true,
+            },
+        );
+        emu.api.next_fd = 4;
+        emu.api.start_time = 99;
+        emu.api.tick_count = 77;
+        emu.api.resource_table.push(("sound".to_string(), 0x1234));
+        emu.api
+            .audio_commands
+            .push(AudioCommand::Stop { resource_type: 99 });
+        emu.api.advance_instructions(555);
+
+        emu.renderer.set_dimensions(160, 120);
+        emu.renderer.set_format(PixelFormat::XRGB8888);
+        emu.renderer.set_framebuffer_address(Some(VRAM_BASE));
+        emu.renderer.get_framebuffer_mut().fill(0x5A);
+
+        emu.audio.set_params(44_100, 2);
+        emu.audio.set_volume(37);
+        emu.audio.get_buffer_mut().extend_from_slice(&[1, 2, 3, 4]);
+        emu.audio.handle_command(AudioCommand::Play {
+            resource_type: RESOURCE_TYPE_WAV,
+            repeat: 2,
+            data: wave_resource(),
+        });
+
+        emu.input.set_buttons(1 << BUTTON_O);
+        emu.input.set_key_mapping(BUTTON_O, Some(0x20));
+        emu.input.set_repeat_timing(250, 50);
+        emu.tick_count = 77;
+        emu.is_running = true;
+        emu.exit_requested = true;
+
+        let mut expected_audio = emu.audio.clone();
+        expected_audio.render_frame(&emu.memory, None);
+        let expected_next_audio = expected_audio.get_buffer().to_vec();
+        let expected_framebuffer = emu.renderer.get_framebuffer().to_vec();
+
+        let mut state = vec![0u8; emu.serialize_size()];
+        emu.serialize(&mut state).unwrap();
+        emu.reset().unwrap();
+        emu.deserialize(&state).unwrap();
+
+        assert!(emu.cpu.thumb_mode);
+        assert_eq!(emu.cpu.instruction_count, 123_456);
+        assert_eq!(emu.cpu.regs.r4, 0xDEAD_BEEF);
+        assert_eq!(emu.cpu.regs.cpsr, 0xA000_001F);
+        assert_eq!(emu.memory.read_u32(RAM_BASE + 0x1000).unwrap(), 0x1111_1111);
+        assert_eq!(emu.memory.read_u32(VRAM_BASE).unwrap(), 0x2222_2222);
+        assert_eq!(emu.memory.read_u32(PERIPHERAL_BASE).unwrap(), 0x3333_3333);
+        assert_eq!(emu.memory.get_register(REG_R5), 0xCAFE_BABE);
+        assert_eq!(emu.api.framebuffer_addr, Some(VRAM_BASE));
+        assert_eq!(emu.api.display_screen_addr, Some(VRAM_BASE + 0x100));
+        assert_eq!(emu.api.framebuffer_width, 160);
+        assert_eq!(emu.api.framebuffer_height, 120);
+        assert_eq!(emu.api.fg_color, [1, 2, 3]);
+        assert_eq!(emu.api.color_rop, 0xCC);
+        assert_eq!(emu.api.surfaces.get(&7).unwrap().width, 16);
+        assert_eq!(emu.api.next_surface_id, 8);
+        assert_eq!(emu.api.raw_key_state, 0x12);
+        assert_eq!(emu.api.key_state, 0x34);
+        assert_eq!(emu.api.key_map[0], 0x56);
+        assert_eq!(emu.api.open_files.get(&3).unwrap().position, 4);
+        assert_eq!(emu.api.next_fd, 4);
+        assert_eq!(emu.api.start_time, 99);
+        assert_eq!(emu.api.tick_count, 77);
+        assert_eq!(emu.api.resource_table, [("sound".to_string(), 0x1234)]);
+        assert_eq!(emu.renderer.width, 160);
+        assert_eq!(emu.renderer.height, 120);
+        assert_eq!(emu.renderer.format, PixelFormat::XRGB8888);
+        assert_eq!(emu.renderer.fb_addr, Some(VRAM_BASE));
+        assert_eq!(emu.renderer.get_framebuffer(), expected_framebuffer);
+        assert_eq!(emu.audio.sample_rate, 44_100);
+        assert_eq!(emu.audio.channels, 2);
+        assert_eq!(emu.audio.get_volume(), 37);
+        assert_eq!(emu.audio.get_buffer(), [1, 2, 3, 4]);
+        emu.audio.render_frame(&emu.memory, None);
+        assert_eq!(emu.audio.get_buffer(), expected_next_audio);
+        assert_eq!(emu.input.get_buttons(), 1 << BUTTON_O);
+        assert_eq!(emu.input.get_key_mapping(BUTTON_O), Some(0x20));
+        assert_eq!(emu.input.get_repeat_delay(), 250);
+        assert_eq!(emu.input.get_repeat_period(), 50);
+        assert_eq!(emu.tick_count, 77);
+        assert!(emu.is_running);
+        assert!(emu.exit_requested);
+        assert!(matches!(
+            emu.api.take_audio_commands().as_slice(),
+            [AudioCommand::Stop { resource_type: 99 }]
+        ));
+    }
+
+    #[test]
+    fn save_state_rejects_corruption_and_different_content_transactionally() {
+        let source = test_emulator(100);
+        let mut state = vec![0u8; source.serialize_size()];
+        source.serialize(&mut state).unwrap();
+
+        let mut loaded_target = test_emulator(100);
+        loaded_target.start();
+        loaded_target.cpu.regs.r4 = 1;
+        loaded_target.deserialize(&state).unwrap();
+        assert!(!loaded_target.is_running());
+        assert_eq!(loaded_target.cpu.regs.r4, 0);
+        assert_eq!(loaded_target.tick_count, 0);
+
+        let mut target = test_emulator(100);
+        target.cpu.regs.r4 = 0x1234_5678;
+        state[32] ^= 1;
+        assert!(target.deserialize(&state).is_err());
+        assert_eq!(target.cpu.regs.r4, 0x1234_5678);
+
+        source.serialize(&mut state).unwrap();
+        let mut different = test_emulator_with_code(100, &[5, 6, 7, 8]);
+        different.cpu.regs.r4 = 0x8765_4321;
+        assert!(different.deserialize(&state).is_err());
+        assert_eq!(different.cpu.regs.r4, 0x8765_4321);
     }
 }

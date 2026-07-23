@@ -1,4 +1,5 @@
 use crate::memory::Memory;
+use serde::{Deserialize, Serialize};
 
 pub(crate) const RESOURCE_TYPE_WAV: u32 = 1;
 pub(crate) const RESOURCE_TYPE_MIDI: u32 = 2;
@@ -6,7 +7,7 @@ pub(crate) const RESOURCE_TYPE_MIDI: u32 = 2;
 const MAX_RESOURCE_SIZE: usize = 16 * 1024 * 1024;
 const MAX_MIDI_SECONDS: usize = 10 * 60;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) enum AudioCommand {
     Play {
         resource_type: u32,

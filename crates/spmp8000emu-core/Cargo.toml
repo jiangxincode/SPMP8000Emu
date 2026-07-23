@@ -15,6 +15,9 @@ thiserror.workspace = true
 log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+bincode.workspace = true
+crc32fast.workspace = true
+lz4_flex.workspace = true
 image.workspace = true
 # Byte manipulation
 byteorder = "1"

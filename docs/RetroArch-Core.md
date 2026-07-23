@@ -48,9 +48,21 @@ frontend can display the core metadata and supported features.
 - Stereo audio output with WAVE effects and synthesized MIDI music
 - RetroPad input handling
 - Full runtime reset from the cached game boot image
+- Versioned and checksummed save states for the complete emulator runtime
 - `.bin` content loading (NGame1.0 format)
 
-Save states, cheats, and core options are not supported yet.
+Cheats and core options are not supported yet.
+
+## Save states
+
+The core exposes a fixed 128 MiB serialization capacity to libretro. State payloads use a
+versioned binary format with LZ4 compression, content identity checking, payload length
+validation, and a CRC32 checksum. A state includes the CPU, all mapped memory, HLE API,
+renderer, active audio playback, input, and runtime flags.
+
+States can only be restored while the same game content is loaded. Invalid, corrupted,
+incompatible, or cross-game states are rejected before the active emulator state is changed.
+RetroArch may compress the fixed-size state file according to its frontend configuration.
 
 ## RetroPad Button Mapping
 

@@ -2,6 +2,8 @@
 //
 // Maps host input (keyboard/gamepad) to SPMP8000 button state
 
+use serde::{Deserialize, Serialize};
+
 /// Button indices
 pub const BUTTON_UP: usize = 0;
 pub const BUTTON_DOWN: usize = 1;
@@ -13,7 +15,7 @@ pub const BUTTON_START: usize = 11;
 pub const BUTTON_SELECT: usize = 10;
 
 /// Input handler state
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputHandler {
     /// Current button state (bitmask)
     buttons: u32,
@@ -173,6 +175,13 @@ impl InputHandler {
     /// Clear all button states
     pub fn clear(&mut self) {
         self.buttons = 0;
+    }
+
+    pub(crate) fn validate_state(&self) -> anyhow::Result<()> {
+        if self.key_map.len() != 32 {
+            anyhow::bail!("save state contains an invalid input mapping");
+        }
+        Ok(())
     }
 }
 

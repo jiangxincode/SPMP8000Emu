@@ -4,15 +4,16 @@ use std::collections::HashMap;
 
 use crate::audio_resource::{decode_resource, AudioCommand};
 use crate::memory::Memory;
+use serde::{Deserialize, Serialize};
 
 /// Audio sample format
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SampleFormat {
     S16LE,
     U8,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Playback {
     samples: Vec<i16>,
     position: usize,
@@ -49,7 +50,7 @@ impl Playback {
 }
 
 /// Audio engine state
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioEngine {
     /// Output sample rate in Hz
     pub sample_rate: u32,
@@ -91,6 +92,25 @@ impl AudioEngine {
     /// Get the output volume as a percentage.
     pub fn get_volume(&self) -> u32 {
         (self.volume * 100.0).round() as u32
+    }
+
+    pub(crate) fn validate_state(&self) -> anyhow::Result<()> {
+        if !(1..=384_000).contains(&self.sample_rate)
+            || !(1..=2).contains(&self.channels)
+            || !self.volume.is_finite()
+            || !(0.0..=1.0).contains(&self.volume)
+            || self.buffer.len() > 16 * 1024 * 1024
+        {
+            anyhow::bail!("save state contains invalid audio engine parameters");
+        }
+        if self.resource_playbacks.values().any(|playback| {
+            playback.samples.len() % 2 != 0
+                || playback.position % 2 != 0
+                || playback.position > playback.samples.len()
+        }) {
+            anyhow::bail!("save state contains invalid audio playback state");
+        }
+        Ok(())
     }
 
     pub(crate) fn handle_command(&mut self, command: AudioCommand) {

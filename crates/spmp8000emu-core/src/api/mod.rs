@@ -12,9 +12,10 @@ pub mod native_ge;
 
 use crate::audio_resource::AudioCommand;
 use crate::memory::Memory;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Surface {
     pub data_addr: u32,
     pub width: u16,
@@ -24,7 +25,7 @@ pub struct Surface {
     pub palette_entries: u16,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 struct GraphicsTransformation {
     reference_x: i32,
     reference_y: i32,
@@ -32,7 +33,7 @@ struct GraphicsTransformation {
 }
 
 /// File handle for emulated file system
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileHandle {
     pub host_path: String,
     pub position: u64,
@@ -41,7 +42,7 @@ pub struct FileHandle {
 }
 
 /// NGame API state
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NGameApi {
     // Graphics state
     pub framebuffer_addr: Option<u32>,
@@ -149,6 +150,43 @@ impl NGameApi {
 
     pub(crate) fn take_audio_commands(&mut self) -> Vec<AudioCommand> {
         std::mem::take(&mut self.audio_commands)
+    }
+
+    pub(crate) fn validate_state(
+        &self,
+        expected_game_dir: &str,
+        expected_cpu_frequency: u32,
+    ) -> anyhow::Result<()> {
+        if self.game_dir != expected_game_dir {
+            anyhow::bail!("save-state game directory does not match the loaded content");
+        }
+        if self.cpu_frequency != expected_cpu_frequency.max(1) {
+            anyhow::bail!("save state has an incompatible CPU frequency");
+        }
+        if !(1..=640).contains(&self.framebuffer_width)
+            || !(1..=480).contains(&self.framebuffer_height)
+            || self.framebuffer_pitch > 8192
+            || !(1..=384_000).contains(&self.audio_sample_rate)
+            || !(1..=2).contains(&self.audio_channels)
+            || self.surfaces.len() > 256
+            || self.resource_table.len() > 257
+        {
+            anyhow::bail!("save state contains invalid HLE limits");
+        }
+        if self.next_fd < 3
+            || self
+                .open_files
+                .keys()
+                .any(|fd| *fd < 3 || *fd >= self.next_fd)
+            || self.open_files.values().any(|file| {
+                file.host_path.is_empty()
+                    || file.host_path.contains('\0')
+                    || file.position > u64::MAX - file.size
+            })
+        {
+            anyhow::bail!("save state contains invalid file descriptor state");
+        }
+        Ok(())
     }
 
     /// Allocate a new file descriptor

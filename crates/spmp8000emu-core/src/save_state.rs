@@ -1,171 +1,194 @@
-// Save state management for SPMP8000 emulator
-//
-// Handles serialization and deserialization of emulator state
-
+use crate::api::NGameApi;
+use crate::arm_cpu::ArmCpu;
+use crate::audio_engine::AudioEngine;
+use crate::input_handler::InputHandler;
+use crate::memory::Memory;
+use crate::renderer::Renderer;
+use anyhow::{bail, Context, Result};
+use bincode::Options;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
-/// Save state header
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SaveStateHeader {
-    /// Magic bytes
-    pub magic: [u8; 4],
-    /// Version
-    pub version: u32,
-    /// Game name
-    pub game_name: String,
-    /// Timestamp
-    pub timestamp: u64,
-    /// CRC32 of the game file
-    pub game_crc32: u32,
-}
+const MAGIC: &[u8; 8] = b"SPM8STAT";
+const VERSION: u32 = 1;
+const HEADER_SIZE: usize = 32;
+const MAX_DECODED_SIZE: usize = 256 * 1024 * 1024;
 
-/// Save state data
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SaveState {
-    /// Header
-    pub header: SaveStateHeader,
-    /// Register state (R0-R15, CPSR)
-    pub registers: [u32; 17],
-    /// Memory snapshot (key regions only)
-    pub memory: Vec<MemoryRegionSnapshot>,
-    /// API state
-    pub api_state: ApiStateSnapshot,
-}
+/// libretro requires this value to remain constant while content is loaded.
+pub const SERIALIZED_SIZE: usize = 128 * 1024 * 1024;
 
-/// Memory region snapshot
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryRegionSnapshot {
-    /// Base address
-    pub base: u32,
-    /// Region data
-    pub data: Vec<u8>,
-}
+pub(crate) const MEMORY_LAYOUT_VERSION: u32 = 1;
 
-/// API state snapshot
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiStateSnapshot {
-    /// Key state
-    pub key_state: u32,
-    /// Tick count
+#[derive(Serialize, Deserialize)]
+pub(crate) struct EmulatorState {
+    pub memory_layout_version: u32,
+    pub cpu: ArmCpu,
+    pub memory: Memory,
+    pub api: NGameApi,
+    pub renderer: Renderer,
+    pub audio: AudioEngine,
+    pub input: InputHandler,
     pub tick_count: u64,
-    /// Framebuffer address
-    pub framebuffer_addr: Option<u32>,
+    pub is_running: bool,
+    pub exit_requested: bool,
 }
 
-/// Save state manager
-pub struct SaveStateManager {
-    /// Save directory
-    save_dir: PathBuf,
+#[derive(Serialize)]
+pub(crate) struct EmulatorStateRef<'a> {
+    pub memory_layout_version: u32,
+    pub cpu: &'a ArmCpu,
+    pub memory: &'a Memory,
+    pub api: &'a NGameApi,
+    pub renderer: &'a Renderer,
+    pub audio: &'a AudioEngine,
+    pub input: &'a InputHandler,
+    pub tick_count: u64,
+    pub is_running: bool,
+    pub exit_requested: bool,
 }
 
-impl SaveStateManager {
-    /// Create a new save state manager
-    pub fn new(save_dir: PathBuf) -> Self {
-        Self { save_dir }
+pub(crate) fn encode(
+    state: &EmulatorStateRef<'_>,
+    content_crc32: u32,
+    output: &mut [u8],
+) -> Result<()> {
+    if output.len() < SERIALIZED_SIZE {
+        bail!(
+            "save-state buffer is too small: got {}, need {}",
+            output.len(),
+            SERIALIZED_SIZE
+        );
     }
 
-    /// Save state to file
-    pub fn save(&self, state: &SaveState, slot: u32) -> Result<(), String> {
-        let filename = format!("save_{}.json", slot);
-        let path = self.save_dir.join(filename);
-
-        let json = serde_json::to_string_pretty(state)
-            .map_err(|e| format!("Failed to serialize save state: {}", e))?;
-
-        std::fs::write(&path, json).map_err(|e| format!("Failed to write save state: {}", e))?;
-
-        log::info!("Saved state to {}", path.display());
-        Ok(())
+    let decoded = codec()
+        .serialize(state)
+        .context("failed to encode save-state payload")?;
+    if decoded.len() > MAX_DECODED_SIZE {
+        bail!("save-state payload exceeds the decoded size limit");
     }
 
-    /// Load state from file
-    pub fn load(&self, slot: u32) -> Result<SaveState, String> {
-        let filename = format!("save_{}.json", slot);
-        let path = self.save_dir.join(filename);
-
-        if !path.exists() {
-            return Err(format!("Save file not found: {}", path.display()));
-        }
-
-        let json = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read save state: {}", e))?;
-
-        let state: SaveState = serde_json::from_str(&json)
-            .map_err(|e| format!("Failed to parse save state: {}", e))?;
-
-        log::info!("Loaded state from {}", path.display());
-        Ok(state)
+    let payload = lz4_flex::compress(&decoded);
+    if payload.len() > SERIALIZED_SIZE - HEADER_SIZE {
+        bail!("save state exceeds the fixed serialization capacity");
     }
 
-    /// Check if a save exists for a slot
-    pub fn save_exists(&self, slot: u32) -> bool {
-        let filename = format!("save_{}.json", slot);
-        self.save_dir.join(filename).exists()
-    }
-
-    /// Delete a save
-    pub fn delete_save(&self, slot: u32) -> Result<(), String> {
-        let filename = format!("save_{}.json", slot);
-        let path = self.save_dir.join(filename);
-
-        if path.exists() {
-            std::fs::remove_file(&path)
-                .map_err(|e| format!("Failed to delete save state: {}", e))?;
-        }
-
-        Ok(())
-    }
+    output.fill(0);
+    output[..8].copy_from_slice(MAGIC);
+    output[8..12].copy_from_slice(&VERSION.to_le_bytes());
+    output[12..16].copy_from_slice(&content_crc32.to_le_bytes());
+    output[16..20].copy_from_slice(&(payload.len() as u32).to_le_bytes());
+    output[20..24].copy_from_slice(&(decoded.len() as u32).to_le_bytes());
+    output[24..28].copy_from_slice(&crc32fast::hash(&payload).to_le_bytes());
+    output[HEADER_SIZE..HEADER_SIZE + payload.len()].copy_from_slice(&payload);
+    Ok(())
 }
 
-/// Create a save state header
-pub fn create_header(game_name: &str, game_crc32: u32) -> SaveStateHeader {
-    SaveStateHeader {
-        magic: *b"SPM8",
-        version: 1,
-        game_name: game_name.to_string(),
-        timestamp: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs(),
-        game_crc32,
+pub(crate) fn decode(input: &[u8], expected_content_crc32: u32) -> Result<EmulatorState> {
+    decode_value(input, expected_content_crc32)
+}
+
+fn decode_value<T: DeserializeOwned>(input: &[u8], expected_content_crc32: u32) -> Result<T> {
+    if input.len() < HEADER_SIZE {
+        bail!("save state is truncated");
     }
+    if &input[..8] != MAGIC {
+        bail!("invalid save-state signature");
+    }
+
+    let version = read_u32(input, 8);
+    if version != VERSION {
+        bail!("unsupported save-state version {version}");
+    }
+
+    let content_crc32 = read_u32(input, 12);
+    if content_crc32 != expected_content_crc32 {
+        bail!("save state belongs to different content data");
+    }
+
+    let payload_len = read_u32(input, 16) as usize;
+    let decoded_len = read_u32(input, 20) as usize;
+    let expected_payload_crc32 = read_u32(input, 24);
+    if decoded_len > MAX_DECODED_SIZE {
+        bail!("save-state decoded size exceeds the limit");
+    }
+
+    let payload_end = HEADER_SIZE
+        .checked_add(payload_len)
+        .filter(|&end| end <= input.len() && end <= SERIALIZED_SIZE)
+        .context("invalid save-state payload length")?;
+    let payload = &input[HEADER_SIZE..payload_end];
+    if crc32fast::hash(payload) != expected_payload_crc32 {
+        bail!("save-state checksum mismatch");
+    }
+
+    let decoded =
+        lz4_flex::decompress(payload, decoded_len).context("failed to decompress save state")?;
+    codec()
+        .with_limit(MAX_DECODED_SIZE as u64)
+        .deserialize(&decoded)
+        .context("failed to decode save state")
+}
+
+fn codec() -> impl Options {
+    bincode::DefaultOptions::new()
+        .with_fixint_encoding()
+        .reject_trailing_bytes()
+}
+
+fn read_u32(input: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes(input[offset..offset + 4].try_into().unwrap())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
-    #[test]
-    fn test_save_state_roundtrip() {
-        let dir = tempdir().unwrap();
-        let manager = SaveStateManager::new(dir.path().to_path_buf());
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct TestValue {
+        text: String,
+        number: u64,
+    }
 
-        let state = SaveState {
-            header: create_header("TestGame", 0x12345678),
-            registers: [0; 17],
-            memory: vec![],
-            api_state: ApiStateSnapshot {
-                key_state: 0,
-                tick_count: 0,
-                framebuffer_addr: None,
-            },
+    fn encoded_value() -> Vec<u8> {
+        let value = TestValue {
+            text: "SPMP8000".to_string(),
+            number: 42,
         };
-
-        manager.save(&state, 0).unwrap();
-        assert!(manager.save_exists(0));
-
-        let loaded = manager.load(0).unwrap();
-        assert_eq!(loaded.header.game_name, "TestGame");
+        let decoded = codec().serialize(&value).unwrap();
+        let payload = lz4_flex::compress(&decoded);
+        let mut output = vec![0u8; HEADER_SIZE + payload.len()];
+        output[..8].copy_from_slice(MAGIC);
+        output[8..12].copy_from_slice(&VERSION.to_le_bytes());
+        output[12..16].copy_from_slice(&0x1234_5678u32.to_le_bytes());
+        output[16..20].copy_from_slice(&(payload.len() as u32).to_le_bytes());
+        output[20..24].copy_from_slice(&(decoded.len() as u32).to_le_bytes());
+        output[24..28].copy_from_slice(&crc32fast::hash(&payload).to_le_bytes());
+        output[HEADER_SIZE..HEADER_SIZE + payload.len()].copy_from_slice(&payload);
+        output
     }
 
     #[test]
-    fn test_save_not_found() {
-        let dir = tempdir().unwrap();
-        let manager = SaveStateManager::new(dir.path().to_path_buf());
+    fn codec_round_trip_and_checksum() {
+        let mut output = encoded_value();
+        assert_eq!(
+            decode_value::<TestValue>(&output, 0x1234_5678).unwrap(),
+            TestValue {
+                text: "SPMP8000".to_string(),
+                number: 42,
+            }
+        );
 
-        assert!(!manager.save_exists(0));
-        assert!(manager.load(0).is_err());
+        output[HEADER_SIZE] ^= 1;
+        assert!(decode_value::<TestValue>(&output, 0x1234_5678).is_err());
+    }
+
+    #[test]
+    fn codec_rejects_wrong_content_version_and_truncation() {
+        let mut output = encoded_value();
+        assert!(decode_value::<TestValue>(&output, 0x8765_4321).is_err());
+
+        output[8..12].copy_from_slice(&2u32.to_le_bytes());
+        assert!(decode_value::<TestValue>(&output, 0x1234_5678).is_err());
+        assert!(decode_value::<TestValue>(&output[..HEADER_SIZE - 1], 0x1234_5678).is_err());
     }
 }
