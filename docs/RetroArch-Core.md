@@ -47,6 +47,7 @@ frontend can display the core metadata and supported features.
 - Video output using the XRGB8888 pixel format
 - Stereo audio output with WAVE effects and synthesized MIDI music
 - RetroPad input handling
+- Full runtime reset from the cached game boot image
 - `.bin` content loading (NGame1.0 format)
 
 Save states, cheats, and core options are not supported yet.

@@ -29,6 +29,7 @@ ARM-based CPU and HLE system API.
 - **Audio emulation** — WAV effects and MIDI music mixed to 22050 Hz stereo output
 - **Input handling** — keyboard input with configurable mappings
 - **RetroArch integration** — libretro core for RetroArch frontend
+- **True reset** — rebuilds CPU, memory, HLE, graphics, audio, and input runtime state
 - **Standalone mode** — minifb window with CLI
 - **Cross-platform** — Windows, macOS, Linux, Android, iOS, webOS
 - **Headless mode** — run without a window for testing and batch processing

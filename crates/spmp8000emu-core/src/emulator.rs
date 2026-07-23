@@ -6,6 +6,7 @@
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::api::NGameApi;
 use crate::arm_cpu::ArmCpu;
@@ -23,6 +24,7 @@ pub struct Emulator {
     // Game info
     pub header: NGameHeader,
     pub game_path: PathBuf,
+    boot_code: Arc<[u8]>,
 
     // Core components
     pub cpu: ArmCpu,
@@ -72,7 +74,25 @@ impl Emulator {
             compressed_data.len()
         );
 
-        // Initialize components
+        let emu = Self::from_loaded_game(
+            path,
+            header,
+            Arc::from(decompressed_data),
+            volume,
+            InputHandler::new(),
+        )?;
+
+        log::info!("Emulator initialized successfully");
+        Ok(emu)
+    }
+
+    fn from_loaded_game(
+        path: PathBuf,
+        header: NGameHeader,
+        boot_code: Arc<[u8]>,
+        volume: u32,
+        mut input: InputHandler,
+    ) -> Result<Self> {
         let cpu = ArmCpu::new().context("Failed to create ARM CPU")?;
         let mut memory = Memory::new();
         memory
@@ -80,19 +100,30 @@ impl Emulator {
             .context("Failed to initialize memory")?;
 
         let function_table = FunctionTable::new();
+        Self::load_code(&mut memory, &boot_code)?;
+        function_table.setup_in_memory(&mut memory)?;
+
+        let mut cpu = cpu;
+        cpu.set_pc(memory::CODE_LOAD_ADDR)?;
+        cpu.set_sp(0x00F00000)?;
+        cpu.set_register(0, memory::FUNC_TABLE_BASE)?;
+
         let mut api = NGameApi::new();
         api.set_cpu_frequency(header.cpu_freq());
+        if let Some(parent) = path.parent() {
+            api.set_game_dir(&parent.to_string_lossy());
+        }
 
         let resolution = header.default_resolution();
         let renderer = Renderer::new(resolution.0, resolution.1);
         let mut audio = AudioEngine::new(22050);
         audio.set_volume(volume);
-        let input = InputHandler::new();
+        input.clear();
 
-        // Create emulator instance
-        let mut emu = Self {
-            header: header.clone(),
+        Ok(Self {
+            header,
             game_path: path,
+            boot_code,
             cpu,
             memory,
             function_table,
@@ -103,35 +134,16 @@ impl Emulator {
             tick_count: 0,
             is_running: false,
             exit_requested: false,
-        };
-
-        // Load the game code into memory
-        emu.load_code(&decompressed_data)?;
-
-        // Set up function table
-        emu.function_table.setup_in_memory(&mut emu.memory)?;
-
-        // Set up CPU
-        emu.cpu.set_pc(memory::CODE_LOAD_ADDR)?;
-        emu.cpu.set_sp(0x00F00000)?; // Stack at top of RAM
-        emu.cpu.set_register(0, memory::FUNC_TABLE_BASE)?;
-
-        // Set game directory for file operations
-        if let Some(parent) = emu.game_path.parent() {
-            emu.api.set_game_dir(&parent.to_string_lossy());
-        }
-
-        log::info!("Emulator initialized successfully");
-        Ok(emu)
+        })
     }
 
     /// Load game code into memory
-    fn load_code(&mut self, code: &[u8]) -> Result<()> {
+    fn load_code(memory: &mut Memory, code: &[u8]) -> Result<()> {
         // Load code at the standard load address
         let load_addr = memory::CODE_LOAD_ADDR;
 
         // Write code to memory
-        self.memory
+        memory
             .write_block(load_addr, code)
             .context("Failed to write game code")?;
 
@@ -275,6 +287,27 @@ impl Emulator {
         log::info!("Emulation stopped");
     }
 
+    /// Rebuild all mutable runtime state from the cached boot image.
+    pub fn reset(&mut self) -> Result<()> {
+        let debug_enabled = self.cpu.debug;
+        let volume = self.audio.get_volume();
+        let input = self.input.clone();
+
+        let mut replacement = Self::from_loaded_game(
+            self.game_path.clone(),
+            self.header.clone(),
+            Arc::clone(&self.boot_code),
+            volume,
+            input,
+        )
+        .context("Failed to rebuild emulator state")?;
+        replacement.cpu.debug = debug_enabled;
+
+        *self = replacement;
+        log::info!("Emulator reset");
+        Ok(())
+    }
+
     /// Request exit
     pub fn request_exit(&mut self) {
         self.exit_requested = true;
@@ -309,6 +342,34 @@ impl Emulator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::FileHandle;
+    use crate::bin_loader::ChipType;
+    use crate::input_handler::BUTTON_O;
+    use crate::memory::{FUNC_TABLE_BASE, PERIPHERAL_BASE, RAM_BASE, VRAM_BASE};
+
+    fn test_emulator(volume: u32) -> Emulator {
+        let header = NGameHeader {
+            magic: *b"NGame1.0",
+            flags: 0x8000_0000,
+            vendor: "Sunplus".to_string(),
+            chip_type: ChipType::SPMP8000,
+            game_name: "Reset Test".to_string(),
+            media_type: "Sunmedia".to_string(),
+            version: "1.0".to_string(),
+            code_size: 4,
+            file_size: 0x84,
+            data_offset: 0x80,
+        };
+
+        Emulator::from_loaded_game(
+            PathBuf::from("games/reset-test.bin"),
+            header,
+            Arc::from([0x01, 0x02, 0x03, 0x04]),
+            volume,
+            InputHandler::new(),
+        )
+        .unwrap()
+    }
 
     #[test]
     fn test_emulator_creation() {
@@ -321,5 +382,104 @@ mod tests {
 
         let emu = Emulator::from_path(test_path, 100);
         assert!(emu.is_ok());
+    }
+
+    #[test]
+    fn reset_rebuilds_runtime_state_and_preserves_configuration() {
+        let mut emu = test_emulator(37);
+        let initial_trampoline = emu.memory.read_u32(FUNC_TABLE_BASE).unwrap();
+
+        emu.input.set_key_mapping(BUTTON_O, Some(0x20));
+        emu.input.set_repeat_timing(250, 50);
+        emu.set_buttons(1 << BUTTON_O);
+        emu.cpu.debug = true;
+        emu.cpu.thumb_mode = true;
+        emu.cpu.instruction_count = 123;
+        emu.cpu.set_register(4, 0xDEAD_BEEF).unwrap();
+        emu.memory
+            .write_u32(RAM_BASE + 0x1000, 0x1111_1111)
+            .unwrap();
+        emu.memory.write_u32(VRAM_BASE, 0x2222_2222).unwrap();
+        emu.memory.write_u32(PERIPHERAL_BASE, 0x3333_3333).unwrap();
+        emu.memory.write_u32(memory::CODE_LOAD_ADDR, 0).unwrap();
+        emu.memory.write_u32(FUNC_TABLE_BASE, 0).unwrap();
+        emu.api.framebuffer_addr = Some(VRAM_BASE);
+        emu.api.audio_buffer_addr = Some(RAM_BASE + 0x2000);
+        emu.api.resource_table.push(("sound".to_string(), 0x1234));
+        emu.api.open_files.insert(
+            3,
+            FileHandle {
+                host_path: "save.dat".to_string(),
+                position: 4,
+                size: 8,
+                is_writable: true,
+            },
+        );
+        emu.api.next_fd = 4;
+        emu.renderer.set_dimensions(160, 120);
+        emu.renderer.set_framebuffer_address(Some(VRAM_BASE));
+        emu.renderer.get_framebuffer_mut().fill(0xFF);
+        emu.audio.set_params(44100, 1);
+        emu.audio.get_buffer_mut().extend_from_slice(&[1, 2, 3, 4]);
+        emu.tick_count = 42;
+        emu.api.tick_count = 42;
+        emu.request_exit();
+        emu.start();
+
+        emu.reset().unwrap();
+
+        assert!(!emu.is_running());
+        assert!(!emu.should_exit());
+        assert_eq!(emu.get_tick_count(), 0);
+        assert_eq!(emu.cpu.instruction_count, 0);
+        assert!(!emu.cpu.thumb_mode);
+        assert!(emu.cpu.debug);
+        assert_eq!(emu.cpu.get_pc().unwrap(), memory::CODE_LOAD_ADDR);
+        assert_eq!(emu.cpu.regs.sp, 0x00F0_0000);
+        assert_eq!(emu.cpu.regs.r0, FUNC_TABLE_BASE);
+        assert_eq!(
+            emu.memory.read_u32(memory::CODE_LOAD_ADDR).unwrap(),
+            0x0403_0201
+        );
+        assert_eq!(
+            emu.memory.read_u32(FUNC_TABLE_BASE).unwrap(),
+            initial_trampoline
+        );
+        assert_eq!(emu.memory.read_u32(RAM_BASE + 0x1000).unwrap(), 0);
+        assert_eq!(emu.memory.read_u32(VRAM_BASE).unwrap(), 0);
+        assert_eq!(emu.memory.read_u32(PERIPHERAL_BASE).unwrap(), 0);
+        assert_eq!(emu.api.framebuffer_addr, None);
+        assert_eq!(emu.api.audio_buffer_addr, None);
+        assert!(emu.api.resource_table.is_empty());
+        assert!(emu.api.open_files.is_empty());
+        assert_eq!(emu.api.next_fd, 3);
+        assert_eq!(emu.api.game_dir, "games");
+        assert_eq!(emu.api.get_key_state(), 0);
+        assert_eq!(emu.renderer.width, 320);
+        assert_eq!(emu.renderer.height, 240);
+        assert_eq!(emu.renderer.fb_addr, None);
+        assert!(emu.renderer.get_framebuffer().iter().all(|byte| *byte == 0));
+        assert_eq!(emu.audio.sample_rate, 22050);
+        assert_eq!(emu.audio.channels, 2);
+        assert_eq!(emu.audio.get_volume(), 37);
+        assert!(emu.audio.get_buffer().is_empty());
+        assert_eq!(emu.input.get_buttons(), 0);
+        assert_eq!(emu.input.get_key_mapping(BUTTON_O), Some(0x20));
+        assert_eq!(emu.input.get_repeat_delay(), 250);
+        assert_eq!(emu.input.get_repeat_period(), 50);
+    }
+
+    #[test]
+    fn reset_uses_the_cached_boot_image_without_rereading_content() {
+        let mut emu = test_emulator(100);
+        assert!(!emu.game_path.exists());
+        emu.memory.write_u32(memory::CODE_LOAD_ADDR, 0).unwrap();
+
+        emu.reset().unwrap();
+
+        assert_eq!(
+            emu.memory.read_u32(memory::CODE_LOAD_ADDR).unwrap(),
+            0x0403_0201
+        );
     }
 }

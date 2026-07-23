@@ -88,6 +88,11 @@ impl AudioEngine {
         self.volume = volume.min(100) as f32 / 100.0;
     }
 
+    /// Get the output volume as a percentage.
+    pub fn get_volume(&self) -> u32 {
+        (self.volume * 100.0).round() as u32
+    }
+
     pub(crate) fn handle_command(&mut self, command: AudioCommand) {
         match command {
             AudioCommand::Play {

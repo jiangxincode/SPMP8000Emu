@@ -272,11 +272,27 @@ pub extern "C" fn retro_unserialize(_data: *const c_void, _size: usize) -> bool 
 }
 
 #[no_mangle]
+pub extern "C" fn retro_get_region() -> u32 {
+    RETRO_REGION_NTSC
+}
+
+#[no_mangle]
+pub extern "C" fn retro_cheat_reset() {}
+
+#[no_mangle]
+pub extern "C" fn retro_cheat_set(_index: u32, _enabled: bool, _code: *const std::ffi::c_char) {}
+
+#[no_mangle]
 pub extern "C" fn retro_reset() {
     unsafe {
         if let Some(emu) = EMULATOR.as_mut() {
-            emu.stop();
-            emu.start();
+            match emu.reset() {
+                Ok(()) => {
+                    emu.start();
+                    log::info!("Game reset");
+                }
+                Err(error) => log::error!("Failed to reset game: {}", error),
+            }
         }
     }
 }

@@ -13,7 +13,7 @@ pub const BUTTON_START: usize = 11;
 pub const BUTTON_SELECT: usize = 10;
 
 /// Input handler state
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InputHandler {
     /// Current button state (bitmask)
     buttons: u32,
