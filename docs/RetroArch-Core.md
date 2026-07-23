@@ -24,15 +24,17 @@ RetroArch, loading content, supported features, and controls.
 Build the libretro core:
 
 ```bash
-cargo build -p spmp8000-libretro --release
+cargo build -p spmp8000emu-libretro --release
 ```
 
 Cargo names the cdylib after its lib target, so this produces
-`spmp8000.dll` on Windows (`libspmp8000.so` on Linux, `libspmp8000.dylib` on
-macOS) under `target/release/`.
+`spmp8000emu.dll` on Windows (`libspmp8000emu.so` on Linux,
+`libspmp8000emu.dylib` on macOS) under `target/release/`.
 
-RetroArch expects the core file to be named `spmp8000_libretro.<ext>`, so rename
-it accordingly before placing it into RetroArch's `cores/` directory.
+RetroArch expects the core file to be named `spmp8000emu_libretro.<ext>`, so
+rename it accordingly before placing it into RetroArch's `cores/` directory.
+Copy `spmp8000emu_libretro.info` into RetroArch's `info/` directory so the
+frontend can display the core metadata and supported features.
 
 ## Loading Games
 
@@ -45,8 +47,22 @@ it accordingly before placing it into RetroArch's `cores/` directory.
 - Video output using the XRGB8888 pixel format
 - Stereo audio output with WAVE effects and synthesized MIDI music
 - RetroPad input handling
+- Full runtime reset from the cached game boot image
+- Versioned and checksummed save states for the complete emulator runtime
 - `.bin` content loading (NGame1.0 format)
-- Save states
+
+Cheats and core options are not supported yet.
+
+## Save states
+
+The core exposes a fixed 128 MiB serialization capacity to libretro. State payloads use a
+versioned binary format with LZ4 compression, content identity checking, payload length
+validation, and a CRC32 checksum. A state includes the CPU, all mapped memory, HLE API,
+renderer, active audio playback, input, and runtime flags.
+
+States can only be restored while the same game content is loaded. Invalid, corrupted,
+incompatible, or cross-game states are rejected before the active emulator state is changed.
+RetroArch may compress the fixed-size state file according to its frontend configuration.
 
 ## RetroPad Button Mapping
 

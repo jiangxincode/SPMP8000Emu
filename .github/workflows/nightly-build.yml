@@ -74,10 +74,10 @@ jobs:
         timeout-minutes: 10
 
       - name: Build standalone
-        run: cargo build -p spmp8000-emu --release --target ${{ matrix.target }}
+        run: cargo build -p spmp8000emu --release --target ${{ matrix.target }}
 
       - name: Build libretro core
-        run: cargo build -p spmp8000-libretro --release --target ${{ matrix.target }}
+        run: cargo build -p spmp8000emu-libretro --release --target ${{ matrix.target }}
 
       - name: Stage libretro core
         shell: bash
@@ -85,17 +85,18 @@ jobs:
           out="libretro/${{ matrix.artifact }}"
           mkdir -p "$out"
           rel="target/${{ matrix.target }}/release"
-          # Cargo names the cdylib after its lib target (spmp8000); copy it
-          # to the spmp8000_libretro.<ext> name RetroArch expects.
-          for f in "spmp8000.dll:spmp8000_libretro.dll" \
-                   "libspmp8000.so:spmp8000_libretro.so" \
-                   "libspmp8000.dylib:spmp8000_libretro.dylib"; do
+          # Cargo names the cdylib after its lib target (spmp8000emu); copy it
+          # to the spmp8000emu_libretro.<ext> name RetroArch expects.
+          for f in "spmp8000emu.dll:spmp8000emu_libretro.dll" \
+                   "libspmp8000emu.so:spmp8000emu_libretro.so" \
+                   "libspmp8000emu.dylib:spmp8000emu_libretro.dylib"; do
             src="${f%%:*}"; dst="${f##*:}"
             if [ -f "$rel/$src" ]; then
               cp "$rel/$src" "$out/$dst"
               break
             fi
           done
+          cp crates/spmp8000emu-libretro/spmp8000emu_libretro.info "$out/spmp8000emu_libretro.info"
           ls -la "$out"
 
       - name: Package libretro (Unix)
@@ -177,18 +178,18 @@ jobs:
           cargo ndk \
             -t arm64-v8a -t armeabi-v7a -t x86 -t x86_64 \
             --platform 21 \
-            build -p spmp8000-libretro --release
+            build -p spmp8000emu-libretro --release
 
       - name: Stage libretro core
         shell: bash
         run: |
           out="libretro/spmp8000-emu-android"
           mkdir -p "$out/arm64-v8a" "$out/armeabi-v7a" "$out/x86" "$out/x86_64"
-          cp target/aarch64-linux-android/release/libspmp8000.so "$out/arm64-v8a/spmp8000_libretro_android.so"
-          cp target/armv7-linux-androideabi/release/libspmp8000.so "$out/armeabi-v7a/spmp8000_libretro_android.so"
-          cp target/i686-linux-android/release/libspmp8000.so "$out/x86/spmp8000_libretro_android.so"
-          cp target/x86_64-linux-android/release/libspmp8000.so "$out/x86_64/spmp8000_libretro_android.so"
-          cp crates/spmp8000-libretro/spmp8000_libretro.info "$out/"
+          cp target/aarch64-linux-android/release/libspmp8000emu.so "$out/arm64-v8a/spmp8000emu_libretro_android.so"
+          cp target/armv7-linux-androideabi/release/libspmp8000emu.so "$out/armeabi-v7a/spmp8000emu_libretro_android.so"
+          cp target/i686-linux-android/release/libspmp8000emu.so "$out/x86/spmp8000emu_libretro_android.so"
+          cp target/x86_64-linux-android/release/libspmp8000emu.so "$out/x86_64/spmp8000emu_libretro_android.so"
+          cp crates/spmp8000emu-libretro/spmp8000emu_libretro.info "$out/"
           ls -laR "$out"
 
       - name: Package libretro
@@ -231,13 +232,13 @@ jobs:
           key: nightly-ios
 
       - name: Build libretro core (arm64 device)
-        run: cargo build -p spmp8000-libretro --release --target aarch64-apple-ios
+        run: cargo build -p spmp8000emu-libretro --release --target aarch64-apple-ios
 
       - name: Build libretro core (x86_64 device)
-        run: cargo build -p spmp8000-libretro --release --target x86_64-apple-ios
+        run: cargo build -p spmp8000emu-libretro --release --target x86_64-apple-ios
 
       - name: Build libretro core (arm64 simulator)
-        run: cargo build -p spmp8000-libretro --release --target aarch64-apple-ios-sim
+        run: cargo build -p spmp8000emu-libretro --release --target aarch64-apple-ios-sim
 
       - name: Create universal binary and stage
         shell: bash
@@ -246,13 +247,13 @@ jobs:
           mkdir -p "$out/simulator"
           # Universal binary for real devices (arm64 + x86_64)
           lipo -create \
-            target/aarch64-apple-ios/release/libspmp8000.dylib \
-            target/x86_64-apple-ios/release/libspmp8000.dylib \
-            -output "$out/spmp8000_libretro_ios.dylib"
+            target/aarch64-apple-ios/release/libspmp8000emu.dylib \
+            target/x86_64-apple-ios/release/libspmp8000emu.dylib \
+            -output "$out/spmp8000emu_libretro_ios.dylib"
           # Simulator binary (arm64 only)
-          cp target/aarch64-apple-ios-sim/release/libspmp8000.dylib \
-             "$out/simulator/spmp8000_libretro_ios.dylib"
-          cp crates/spmp8000-libretro/spmp8000_libretro.info "$out/"
+          cp target/aarch64-apple-ios-sim/release/libspmp8000emu.dylib \
+             "$out/simulator/spmp8000emu_libretro_ios.dylib"
+          cp crates/spmp8000emu-libretro/spmp8000emu_libretro.info "$out/"
           ls -laR "$out"
 
       - name: Package libretro
@@ -313,21 +314,21 @@ jobs:
           CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABI_LINKER: arm-webos-linux-gnueabi-gcc
           CC_armv7_unknown_linux_gnueabi: arm-webos-linux-gnueabi-gcc
           AR_armv7_unknown_linux_gnueabi: arm-webos-linux-gnueabi-ar
-        run: cargo build -p spmp8000-libretro --release --target ${{ env.RUST_TARGET }}
+        run: cargo build -p spmp8000emu-libretro --release --target ${{ env.RUST_TARGET }}
 
       - name: Verify ELF binary
         shell: bash
         run: |
-          arm-webos-linux-gnueabi-readelf -h target/${{ env.RUST_TARGET }}/release/libspmp8000.so
-          arm-webos-linux-gnueabi-readelf -d target/${{ env.RUST_TARGET }}/release/libspmp8000.so
+          arm-webos-linux-gnueabi-readelf -h target/${{ env.RUST_TARGET }}/release/libspmp8000emu.so
+          arm-webos-linux-gnueabi-readelf -d target/${{ env.RUST_TARGET }}/release/libspmp8000emu.so
 
       - name: Stage libretro core
         shell: bash
         run: |
           out="libretro/spmp8000-emu-webos"
           mkdir -p "$out"
-          cp target/${{ env.RUST_TARGET }}/release/libspmp8000.so "$out/spmp8000_libretro.so"
-          cp crates/spmp8000-libretro/spmp8000_libretro.info "$out/"
+          cp target/${{ env.RUST_TARGET }}/release/libspmp8000emu.so "$out/spmp8000emu_libretro.so"
+          cp crates/spmp8000emu-libretro/spmp8000emu_libretro.info "$out/"
           ls -laR "$out"
 
       - name: Package libretro

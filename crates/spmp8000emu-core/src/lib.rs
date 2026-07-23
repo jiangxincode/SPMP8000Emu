@@ -1,4 +1,4 @@
-// spmp8000-core - the platform-independent SPMP8000 emulator engine.
+// spmp8000emu-core - the platform-independent SPMP8000 emulator engine.
 //
 // This crate contains the shared emulator (`emulator::Emulator`) plus all the
 // format parsing, rendering, audio and input logic. It has no dependency on any

@@ -44,7 +44,7 @@ if (-not $Binary) {
     Write-Host "Building the latest release binary..." -ForegroundColor Yellow
     try {
         Push-Location $repoRoot
-        cargo build --release -p spmp8000-emu
+        cargo build --release -p spmp8000emu
         if ($LASTEXITCODE -ne 0) {
             throw "Release build failed with exit code $LASTEXITCODE."
         }

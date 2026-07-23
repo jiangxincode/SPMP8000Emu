@@ -29,6 +29,8 @@ ARM-based CPU and HLE system API.
 - **Audio emulation** — WAV effects and MIDI music mixed to 22050 Hz stereo output
 - **Input handling** — keyboard input with configurable mappings
 - **RetroArch integration** — libretro core for RetroArch frontend
+- **True reset** — rebuilds CPU, memory, HLE, graphics, audio, and input runtime state
+- **Save states** — versioned, checksummed snapshots of the complete emulator runtime
 - **Standalone mode** — minifb window with CLI
 - **Cross-platform** — Windows, macOS, Linux, Android, iOS, webOS
 - **Headless mode** — run without a window for testing and batch processing
@@ -63,19 +65,20 @@ Requires [Rust](https://www.rust-lang.org/tools/install) (stable).
 ### Standalone Mode
 
 ```bash
-cargo build -p spmp8000-emu --release
-cargo run -p spmp8000-emu --release -- path/to/game.bin
+cargo build -p spmp8000emu --release
+cargo run -p spmp8000emu --release -- path/to/game.bin
 ```
 
 ### Libretro Core (for RetroArch)
 
 ```bash
-cargo build -p spmp8000-libretro --release
+cargo build -p spmp8000emu-libretro --release
 ```
 
-The binary is produced at `target/release/spmp8000.dll` (`.so` on Linux,
-`.dylib` on macOS). Rename to `spmp8000_libretro.<ext>` before placing it in
-RetroArch's `cores/` directory.
+The binary is produced at `target/release/spmp8000emu.dll`
+(`libspmp8000emu.so` on Linux, `libspmp8000emu.dylib` on macOS). Rename it to
+`spmp8000emu_libretro.<ext>` before placing it in RetroArch's `cores/`
+directory.
 
 For Android cross-compilation, see [Android Libretro Core](docs/Android-Libretro-Core.md).
 For iOS, see [iOS Libretro Core](docs/iOS-Libretro-Core.md).
@@ -84,7 +87,7 @@ For iOS, see [iOS Libretro Core](docs/iOS-Libretro-Core.md).
 
 ```
 crates/
-├── spmp8000-core/            # Platform-independent emulator engine (library)
+├── spmp8000emu-core/         # Platform-independent emulator engine (library)
 │   └── src/
 │       ├── lib.rs            # Crate root
 │       ├── emulator.rs       # Core emulator tying all components together
@@ -98,11 +101,11 @@ crates/
 │       ├── api.rs            # HLE system API (emuIf, NativeGE, eCos)
 │       ├── input_handler.rs  # Button state management
 │       ├── function_table.rs # HLE function trampolines
-│       └── save_state.rs     # Save/load state
-├── spmp8000-emu/             # Standalone binary (→ spmp8000-emu)
+│       └── save_state.rs     # Save-state data structures (not yet integrated)
+├── spmp8000emu/              # Standalone binary (→ spmp8000-emu)
 │   └── src/
 │       └── main.rs           # Window loop, CLI, keyboard input
-└── spmp8000-libretro/        # libretro cdylib (→ spmp8000_libretro.{dll,so,dylib})
+└── spmp8000emu-libretro/     # libretro cdylib (→ spmp8000emu_libretro.{dll,so,dylib})
     └── src/
         ├── lib.rs            # cdylib crate root
         └── libretro/         # libretro C API implementation
@@ -147,7 +150,7 @@ default and only runs on demand:
 
 ```bash
 # Uses <repo>/tmp/GameCollection by default, or set SPMP8000_GAME_DIR
-cargo test -p spmp8000-core --test screenshot -- --ignored --nocapture
+cargo test -p spmp8000emu-core --test screenshot -- --ignored --nocapture
 ```
 
 To refresh the compatibility screenshots, run:

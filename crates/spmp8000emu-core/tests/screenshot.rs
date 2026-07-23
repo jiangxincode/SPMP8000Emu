@@ -7,7 +7,7 @@
 // `#[ignore]` and only runs on demand:
 //
 // ```text
-// cargo test -p spmp8000-core --test screenshot -- --ignored --nocapture
+// cargo test -p spmp8000emu-core --test screenshot -- --ignored --nocapture
 // ```
 //
 // By default it looks for games in `<repo>/tmp/GameCollection`. Override the
@@ -15,7 +15,7 @@
 
 use std::path::{Path, PathBuf};
 
-use spmp8000_core::emulator::Emulator;
+use spmp8000emu_core::emulator::Emulator;
 
 /// Number of frames to run per game before sampling the output.
 const FRAMES: u32 = 300;
@@ -27,7 +27,7 @@ fn game_dir() -> Option<PathBuf> {
         return p.is_dir().then_some(p);
     }
     // Default: <workspace_root>/tmp/GameCollection. CARGO_MANIFEST_DIR points at the
-    // core crate (crates/spmp8000-core), so go up two levels.
+    // core crate (crates/spmp8000emu-core), so go up two levels.
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let candidate = manifest
         .parent()

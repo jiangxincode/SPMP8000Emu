@@ -9,9 +9,10 @@
 // - 0x00280000 - 0x00A00000: Firmware area (FW_START - FW_END)
 
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 /// Memory permissions (simplified)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Permission {
     pub read: bool,
     pub write: bool,
@@ -54,7 +55,7 @@ impl std::ops::BitOr for Permission {
 }
 
 /// Memory region with metadata
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryRegion {
     pub base: u32,
     pub size: u32,
@@ -64,7 +65,7 @@ pub struct MemoryRegion {
 }
 
 /// Main memory manager
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Memory {
     regions: Vec<MemoryRegion>,
     /// Register file (R0-R15, CPSR)
@@ -285,6 +286,43 @@ impl Memory {
     /// Get all regions (for debugging)
     pub fn regions(&self) -> &[MemoryRegion] {
         &self.regions
+    }
+
+    pub(crate) fn validate_state(&self) -> Result<()> {
+        let expected = [
+            (RAM_BASE, RAM_SIZE, Permission::ALL, "RAM"),
+            (
+                VRAM_BASE,
+                VRAM_SIZE,
+                Permission::READ | Permission::WRITE,
+                "VRAM",
+            ),
+            (
+                PERIPHERAL_BASE,
+                PERIPHERAL_SIZE,
+                Permission::READ | Permission::WRITE,
+                "PERIPHERAL",
+            ),
+        ];
+        if self.regions.len() != expected.len() {
+            anyhow::bail!(
+                "save state has {} memory regions, expected {}",
+                self.regions.len(),
+                expected.len()
+            );
+        }
+
+        for (region, (base, size, permissions, name)) in self.regions.iter().zip(expected) {
+            if region.base != base
+                || region.size != size
+                || region.permissions != permissions
+                || region.name != name
+                || region.data.len() != size as usize
+            {
+                anyhow::bail!("save state has an incompatible {name} memory region");
+            }
+        }
+        Ok(())
     }
 }
 

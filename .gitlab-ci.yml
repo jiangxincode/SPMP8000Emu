@@ -7,7 +7,7 @@
 # libretro-infrastructure/ci-templates. Those templates run
 # `cargo build --release --target <triple>` and rename the produced cdylib to
 # `${CORENAME}_libretro.<ext>`. The cdylib lib target is named `spmp8000emu`
-# (see crates/spmp8000-libretro/Cargo.toml) and the workspace `default-members`
+# (see crates/spmp8000emu-libretro/Cargo.toml) and the workspace `default-members`
 # is set to the libretro core, so the bare cargo build only builds the core.
 
 # Core definitions

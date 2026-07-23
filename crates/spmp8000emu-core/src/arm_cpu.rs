@@ -5,9 +5,10 @@
 
 use crate::memory::Memory;
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 /// ARM CPU registers
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArmRegisters {
     pub r0: u32,
     pub r1: u32,
@@ -156,6 +157,7 @@ pub enum CpuError {
 }
 
 /// ARM CPU emulator
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ArmCpu {
     /// Registers
     pub regs: ArmRegisters,
