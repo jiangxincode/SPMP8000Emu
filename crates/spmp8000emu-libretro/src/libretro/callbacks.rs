@@ -3,7 +3,7 @@
 // libretro callback management.
 
 use super::types::*;
-use std::ffi::c_void;
+use std::ffi::{c_void, CStr};
 
 /// Global callback storage
 pub struct Callbacks {
@@ -79,6 +79,7 @@ pub fn set_input_state(cb: retro_input_state_t) {
 /// Get log interface from frontend
 pub fn init_log() {
     unsafe {
+        CALLBACKS.log = Some(fallback_log);
         if let Some(env) = CALLBACKS.environment {
             let mut log_cb = retro_log_callback { log: fallback_log };
             let success = env(
@@ -93,14 +94,19 @@ pub fn init_log() {
 }
 
 /// Fallback log function that writes to stderr
-unsafe extern "C" fn fallback_log(level: retro_log_level, _fmt: *const std::ffi::c_char) {
+unsafe extern "C" fn fallback_log(level: retro_log_level, fmt: *const std::ffi::c_char) {
     let level_str = match level {
         retro_log_level::RETRO_LOG_DEBUG => "DEBUG",
         retro_log_level::RETRO_LOG_INFO => "INFO",
         retro_log_level::RETRO_LOG_WARN => "WARN",
         retro_log_level::RETRO_LOG_ERROR => "ERROR",
     };
-    eprintln!("[SPMP8000Emu] {}", level_str);
+    let message = if fmt.is_null() {
+        String::new()
+    } else {
+        CStr::from_ptr(fmt).to_string_lossy().replace("%%", "%")
+    };
+    eprintln!("[SPMP8000Emu] {}: {}", level_str, message);
 }
 
 /// Call environment callback

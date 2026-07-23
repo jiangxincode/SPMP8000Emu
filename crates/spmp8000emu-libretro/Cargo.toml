@@ -1,16 +1,17 @@
 [package]
-name = "spmp8000-libretro"
+name = "spmp8000emu-libretro"
 version.workspace = true
 edition.workspace = true
 description = "libretro core for SPMP8000Emu (loadable by RetroArch)"
 license.workspace = true
 
 [lib]
-# The libretro buildbot expects a cdylib named after the package
-name = "spmp8000"
+# Keep this aligned with CORENAME in .gitlab-ci.yml. The buildbot appends
+# `_libretro` to this core name when packaging the cdylib.
+name = "spmp8000emu"
 crate-type = ["cdylib"]
 path = "src/lib.rs"
 
 [dependencies]
-spmp8000-core.workspace = true
+spmp8000emu-core.workspace = true
 log.workspace = true

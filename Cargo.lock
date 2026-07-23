@@ -1274,7 +1274,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 
 [[package]]
-name = "spmp8000-core"
+name = "spmp8000emu"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "cpal",
+ "env_logger",
+ "log",
+ "minifb",
+ "spmp8000emu-core",
+]
+
+[[package]]
+name = "spmp8000emu-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -1289,24 +1302,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "spmp8000-emu"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "cpal",
- "env_logger",
- "log",
- "minifb",
- "spmp8000-core",
-]
-
-[[package]]
-name = "spmp8000-libretro"
+name = "spmp8000emu-libretro"
 version = "0.1.0"
 dependencies = [
  "log",
- "spmp8000-core",
+ "spmp8000emu-core",
 ]
 
 [[package]]

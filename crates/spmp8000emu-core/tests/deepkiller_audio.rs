@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use spmp8000_core::emulator::Emulator;
+use spmp8000emu_core::emulator::Emulator;
 
 const GAME_NAMES: [&str; 2] = [
     "DeepKiller-1.2.6_P_new.bin",

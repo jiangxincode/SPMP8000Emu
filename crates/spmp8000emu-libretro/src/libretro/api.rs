@@ -6,9 +6,11 @@
 use super::callbacks;
 use super::constants::*;
 use super::types::*;
-use spmp8000_core::emulator::Emulator;
+use spmp8000emu_core::emulator::Emulator;
 use std::ffi::{c_void, CStr};
 use std::ptr;
+
+const PERFORMANCE_LEVEL: u32 = 4;
 
 /// Global emulator instance
 static mut EMULATOR: Option<Emulator> = None;
@@ -65,6 +67,7 @@ pub extern "C" fn retro_api_version() -> u32 {
 #[no_mangle]
 pub extern "C" fn retro_init() {
     callbacks::init_log();
+    super::logger::init();
     log::info!("SPMP8000Emu libretro core initialized");
 }
 
@@ -126,6 +129,13 @@ pub extern "C" fn retro_load_game(info: *const retro_game_info) -> bool {
             log::error!("Failed to set pixel format");
             return false;
         }
+
+        register_input_descriptors();
+
+        callbacks::environment(
+            RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL,
+            &PERFORMANCE_LEVEL as *const _ as *mut c_void,
+        );
 
         // Create emulator instance
         match Emulator::from_path(std::path::PathBuf::from(path), 100) {
@@ -279,4 +289,135 @@ pub extern "C" fn retro_get_memory_data(_id: u32) -> *mut c_void {
 #[no_mangle]
 pub extern "C" fn retro_get_memory_size(_id: u32) -> usize {
     0
+}
+
+fn input_descriptors() -> [retro_input_descriptor; 9] {
+    [
+        retro_input_descriptor {
+            port: 0,
+            device: RETRO_DEVICE_JOYPAD,
+            index: 0,
+            id: RETRO_DEVICE_ID_JOYPAD_UP,
+            description: c"D-Pad Up".as_ptr(),
+        },
+        retro_input_descriptor {
+            port: 0,
+            device: RETRO_DEVICE_JOYPAD,
+            index: 0,
+            id: RETRO_DEVICE_ID_JOYPAD_DOWN,
+            description: c"D-Pad Down".as_ptr(),
+        },
+        retro_input_descriptor {
+            port: 0,
+            device: RETRO_DEVICE_JOYPAD,
+            index: 0,
+            id: RETRO_DEVICE_ID_JOYPAD_LEFT,
+            description: c"D-Pad Left".as_ptr(),
+        },
+        retro_input_descriptor {
+            port: 0,
+            device: RETRO_DEVICE_JOYPAD,
+            index: 0,
+            id: RETRO_DEVICE_ID_JOYPAD_RIGHT,
+            description: c"D-Pad Right".as_ptr(),
+        },
+        retro_input_descriptor {
+            port: 0,
+            device: RETRO_DEVICE_JOYPAD,
+            index: 0,
+            id: RETRO_DEVICE_ID_JOYPAD_A,
+            description: c"O Button".as_ptr(),
+        },
+        retro_input_descriptor {
+            port: 0,
+            device: RETRO_DEVICE_JOYPAD,
+            index: 0,
+            id: RETRO_DEVICE_ID_JOYPAD_B,
+            description: c"X Button".as_ptr(),
+        },
+        retro_input_descriptor {
+            port: 0,
+            device: RETRO_DEVICE_JOYPAD,
+            index: 0,
+            id: RETRO_DEVICE_ID_JOYPAD_START,
+            description: c"Start".as_ptr(),
+        },
+        retro_input_descriptor {
+            port: 0,
+            device: RETRO_DEVICE_JOYPAD,
+            index: 0,
+            id: RETRO_DEVICE_ID_JOYPAD_SELECT,
+            description: c"Select".as_ptr(),
+        },
+        retro_input_descriptor {
+            port: 0,
+            device: RETRO_DEVICE_NONE,
+            index: 0,
+            id: 0,
+            description: ptr::null(),
+        },
+    ]
+}
+
+fn register_input_descriptors() {
+    let descriptors = input_descriptors();
+    callbacks::environment(
+        RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS,
+        descriptors.as_ptr() as *mut c_void,
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_descriptor_list_covers_all_supported_buttons() {
+        let descriptors = input_descriptors();
+        let ids: Vec<u32> = descriptors[..8]
+            .iter()
+            .map(|descriptor| descriptor.id)
+            .collect();
+
+        assert_eq!(
+            ids,
+            [
+                RETRO_DEVICE_ID_JOYPAD_UP,
+                RETRO_DEVICE_ID_JOYPAD_DOWN,
+                RETRO_DEVICE_ID_JOYPAD_LEFT,
+                RETRO_DEVICE_ID_JOYPAD_RIGHT,
+                RETRO_DEVICE_ID_JOYPAD_A,
+                RETRO_DEVICE_ID_JOYPAD_B,
+                RETRO_DEVICE_ID_JOYPAD_START,
+                RETRO_DEVICE_ID_JOYPAD_SELECT,
+            ]
+        );
+        assert_eq!(descriptors[8].device, RETRO_DEVICE_NONE);
+        assert!(descriptors[8].description.is_null());
+    }
+
+    #[test]
+    fn core_naming_and_info_match_implemented_features() {
+        let core_info = include_str!("../../spmp8000emu_libretro.info");
+        let libretro_manifest = include_str!("../../Cargo.toml");
+        let core_manifest = include_str!("../../../spmp8000emu-core/Cargo.toml");
+        let standalone_manifest = include_str!("../../../spmp8000emu/Cargo.toml");
+        let workspace_manifest = include_str!("../../../../Cargo.toml");
+        let buildbot_config = include_str!("../../../../.gitlab-ci.yml");
+
+        assert!(libretro_manifest.contains("name = \"spmp8000emu-libretro\""));
+        assert!(libretro_manifest.contains("name = \"spmp8000emu\""));
+        assert!(core_manifest.contains("name = \"spmp8000emu-core\""));
+        assert!(core_manifest.contains("name = \"spmp8000emu_core\""));
+        assert!(standalone_manifest.contains("name = \"spmp8000emu\""));
+        assert!(standalone_manifest.contains("name = \"spmp8000-emu\""));
+        assert!(workspace_manifest.contains("\"crates/spmp8000emu-core\""));
+        assert!(workspace_manifest.contains("\"crates/spmp8000emu\""));
+        assert!(workspace_manifest.contains("\"crates/spmp8000emu-libretro\""));
+        assert!(buildbot_config.contains("CORENAME: spmp8000emu"));
+        assert!(core_info.contains("corename = \"spmp8000emu\""));
+        assert!(core_info.contains("savestate = \"false\""));
+        assert!(core_info.contains("input_descriptors = \"true\""));
+        assert!(core_info.contains("core_options = \"false\""));
+    }
 }

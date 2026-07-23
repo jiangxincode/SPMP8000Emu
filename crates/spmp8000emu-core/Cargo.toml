@@ -1,12 +1,12 @@
 [package]
-name = "spmp8000-core"
+name = "spmp8000emu-core"
 version.workspace = true
 edition.workspace = true
 description = "Platform-independent SPMP8000 emulator engine"
 license.workspace = true
 
 [lib]
-name = "spmp8000_core"
+name = "spmp8000emu_core"
 path = "src/lib.rs"
 
 [dependencies]

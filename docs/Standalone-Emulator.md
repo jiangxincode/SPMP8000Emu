@@ -20,7 +20,7 @@ Download the latest standalone binary for your platform from the
 You can also build it from source:
 
 ```bash
-cargo build -p spmp8000-emu --release
+cargo build -p spmp8000emu --release
 ```
 
 The binary is produced at `target/release/spmp8000-emu` (`.exe` on Windows).

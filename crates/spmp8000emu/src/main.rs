@@ -1,6 +1,6 @@
 // SPMP8000 Emulator - standalone front-end (minifb window + CLI).
 //
-// This binary reuses the shared emulator core from the `spmp8000-core` library
+// This binary reuses the shared emulator core from the `spmp8000emu-core` library
 // crate and only adds the platform layer: window management, command-line
 // argument parsing, and keyboard input.
 
@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use clap::Parser;
 use minifb::{Key, Window, WindowOptions};
-use spmp8000_core::emulator::Emulator;
+use spmp8000emu_core::emulator::Emulator;
 
 mod audio_output;
 

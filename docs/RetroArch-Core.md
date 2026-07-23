@@ -24,15 +24,17 @@ RetroArch, loading content, supported features, and controls.
 Build the libretro core:
 
 ```bash
-cargo build -p spmp8000-libretro --release
+cargo build -p spmp8000emu-libretro --release
 ```
 
 Cargo names the cdylib after its lib target, so this produces
-`spmp8000.dll` on Windows (`libspmp8000.so` on Linux, `libspmp8000.dylib` on
-macOS) under `target/release/`.
+`spmp8000emu.dll` on Windows (`libspmp8000emu.so` on Linux,
+`libspmp8000emu.dylib` on macOS) under `target/release/`.
 
-RetroArch expects the core file to be named `spmp8000_libretro.<ext>`, so rename
-it accordingly before placing it into RetroArch's `cores/` directory.
+RetroArch expects the core file to be named `spmp8000emu_libretro.<ext>`, so
+rename it accordingly before placing it into RetroArch's `cores/` directory.
+Copy `spmp8000emu_libretro.info` into RetroArch's `info/` directory so the
+frontend can display the core metadata and supported features.
 
 ## Loading Games
 
@@ -46,7 +48,8 @@ it accordingly before placing it into RetroArch's `cores/` directory.
 - Stereo audio output with WAVE effects and synthesized MIDI music
 - RetroPad input handling
 - `.bin` content loading (NGame1.0 format)
-- Save states
+
+Save states, cheats, and core options are not supported yet.
 
 ## RetroPad Button Mapping
 
