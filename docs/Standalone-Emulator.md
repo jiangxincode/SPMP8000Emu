@@ -38,6 +38,7 @@ spmp8000-emu [OPTIONS] <GAME_PATH>
 | `<GAME_PATH>` | path | *required* | Path to the game file (`.bin`). |
 | `-s, --scale <N>` | `1`–`8` | `2` | Integer scaling factor for the window. |
 | `-f, --fullscreen` | flag | off | Run in fullscreen mode. |
+| `--filter <FILTER>` | `nearest`, `bilinear`, `bicubic`, `xbrz` | `nearest` | Select the display scaling filter. |
 | `-v, --volume <N>` | `0`–`100` | `100` | Volume level (`0` = mute, `100` = original). |
 | `--swap-ox` | flag | off | Exchange the emulated O and X button signals. |
 | `--debug-logging` | flag | off | Enable sampled CPU debug records and HLE debug records. |
@@ -52,6 +53,21 @@ spmp8000-emu [OPTIONS] <GAME_PATH>
 The core-configuration defaults match the RetroArch core defaults. The `skip`
 unknown-instruction policy is diagnostic-only; unsupported Thumb mode still
 stops rather than advancing with undefined behavior.
+
+## Display Scaling
+
+The default `nearest` filter preserves hard pixel edges. `bilinear` smooths the
+image, `bicubic` provides sharper interpolation, and `xbrz` smooths pixel-art
+diagonals while retaining hard edges. For example:
+
+```bash
+spmp8000-emu --scale 4 --filter xbrz path/to/game.bin
+```
+
+The window can be resized at runtime. All filters preserve the native aspect
+ratio and center the image with black bars when the window or fullscreen
+display has a different ratio. The `--scale` value selects only the initial
+window size and is ignored for the fullscreen dimensions.
 
 ## Audio Output
 
@@ -116,7 +132,9 @@ spmp8000-emu --screenshot screenshot.png --screenshot-frames 300 path/to/game.bi
 ```
 
 This is used by the batch screenshot script (`scripts/batch-screenshots.ps1`)
-to generate screenshots for all games at once.
+to generate screenshots for all games at once. Screenshots always use the
+native framebuffer resolution and do not include the display filter or black
+bars.
 
 ## Examples
 
@@ -126,6 +144,9 @@ spmp8000-emu path/to/game.bin
 
 # 4x scaling
 spmp8000-emu --scale 4 path/to/game.bin
+
+# xBRZ display filtering
+spmp8000-emu --filter xbrz path/to/game.bin
 
 # Fullscreen with 50% volume
 spmp8000-emu --fullscreen --volume 50 path/to/game.bin

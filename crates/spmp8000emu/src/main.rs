@@ -13,8 +13,74 @@ use spmp8000emu_core::config::{CoreConfig, UnknownInstructionPolicy};
 use spmp8000emu_core::emulator::Emulator;
 
 mod audio_output;
+mod standalone;
 
 use audio_output::AudioOutput;
+use standalone::scaler::{rgba_to_xrgb, DisplayScaler, ScaleFilter};
+
+#[cfg(target_os = "windows")]
+mod screen {
+    extern "system" {
+        fn GetSystemMetrics(index: i32) -> i32;
+    }
+
+    const SM_CXSCREEN: i32 = 0;
+    const SM_CYSCREEN: i32 = 1;
+
+    pub fn get_screen_size() -> (usize, usize) {
+        unsafe {
+            (
+                GetSystemMetrics(SM_CXSCREEN) as usize,
+                GetSystemMetrics(SM_CYSCREEN) as usize,
+            )
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod screen {
+    type Display = *mut core::ffi::c_void;
+
+    #[link(name = "X11")]
+    extern "system" {
+        fn XOpenDisplay(display_name: *const u8) -> Display;
+        fn XCloseDisplay(display: Display) -> i32;
+        fn XDisplayWidth(display: Display, screen_number: i32) -> i32;
+        fn XDisplayHeight(display: Display, screen_number: i32) -> i32;
+    }
+
+    pub fn get_screen_size() -> (usize, usize) {
+        unsafe {
+            let display = XOpenDisplay(std::ptr::null());
+            if display.is_null() {
+                return (800, 600);
+            }
+            let width = XDisplayWidth(display, 0) as usize;
+            let height = XDisplayHeight(display, 0) as usize;
+            let _ = XCloseDisplay(display);
+            (width, height)
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod screen {
+    type CGDirectDisplayId = u32;
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGMainDisplayID() -> CGDirectDisplayId;
+        fn CGDisplayPixelsWide(display: CGDirectDisplayId) -> usize;
+        fn CGDisplayPixelsHigh(display: CGDirectDisplayId) -> usize;
+    }
+
+    pub fn get_screen_size() -> (usize, usize) {
+        unsafe {
+            let display = CGMainDisplayID();
+            (CGDisplayPixelsWide(display), CGDisplayPixelsHigh(display))
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 enum UnknownInstructionMode {
@@ -47,6 +113,10 @@ struct Cli {
     /// Fullscreen mode
     #[arg(short, long)]
     fullscreen: bool,
+
+    /// Pixel scaling filter for display output
+    #[arg(long, value_enum, default_value_t = ScaleFilter::Nearest)]
+    filter: ScaleFilter,
 
     /// Audio volume (0-100)
     #[arg(short, long, default_value = "100", value_parser = clap::value_parser!(u32).range(0..=100))]
@@ -143,18 +213,30 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    let (window_width, window_height) = if cli.fullscreen {
+        screen::get_screen_size()
+    } else {
+        (display_width as usize, display_height as usize)
+    };
+
     // Create window
     let mut window = Window::new(
         &format!("SPMP8000 Emulator - {}", cli.game_path.display()),
-        display_width as usize,
-        display_height as usize,
+        window_width,
+        window_height,
         WindowOptions {
-            resize: true,
-            scale_mode: minifb::ScaleMode::AspectRatioStretch,
+            resize: !cli.fullscreen,
+            borderless: cli.fullscreen,
+            scale_mode: minifb::ScaleMode::Stretch,
             ..Default::default()
         },
     )
     .context("Failed to create window")?;
+
+    if cli.fullscreen {
+        window.topmost(true);
+        window.set_position(0, 0);
+    }
 
     // Limit to ~30fps
     window.set_target_fps(30);
@@ -173,6 +255,8 @@ fn main() -> Result<()> {
     // Main loop
     let frame_duration = Duration::from_secs_f64(1.0 / 30.0);
     let mut frame_count = 0u32;
+    let mut source_buffer = Vec::with_capacity((width * height) as usize);
+    let mut display_scaler = DisplayScaler::new(cli.filter);
 
     while window.is_open() && !window.is_key_down(Key::Escape) && !emu.should_exit() {
         let start = Instant::now();
@@ -213,19 +297,13 @@ fn main() -> Result<()> {
         }
 
         // Update window with framebuffer
-        let framebuffer = emu.get_framebuffer();
-        let buffer: Vec<u32> = framebuffer
-            .chunks_exact(4)
-            .map(|chunk| {
-                let r = chunk[0] as u32;
-                let g = chunk[1] as u32;
-                let b = chunk[2] as u32;
-                (r << 16) | (g << 8) | b
-            })
-            .collect();
+        rgba_to_xrgb(emu.get_framebuffer(), &mut source_buffer);
+        let (window_width, window_height) = window.get_size();
+        let buffer =
+            display_scaler.render(&source_buffer, width, height, window_width, window_height);
 
         window
-            .update_with_buffer(&buffer, width as usize, height as usize)
+            .update_with_buffer(buffer, window_width.max(1), window_height.max(1))
             .context("Failed to update window")?;
 
         frame_count += 1;
@@ -262,6 +340,7 @@ mod tests {
         assert!(!cli.swap_o_x);
         assert!(!cli.debug_logging);
         assert_eq!(cli.unknown_instruction_policy, UnknownInstructionMode::Stop);
+        assert_eq!(cli.filter, ScaleFilter::Nearest);
     }
 
     #[test]
@@ -282,5 +361,18 @@ mod tests {
         assert!(cli.swap_o_x);
         assert!(cli.debug_logging);
         assert_eq!(cli.unknown_instruction_policy, UnknownInstructionMode::Skip);
+    }
+
+    #[test]
+    fn cli_parses_every_display_filter() {
+        for (name, expected) in [
+            ("nearest", ScaleFilter::Nearest),
+            ("bilinear", ScaleFilter::Bilinear),
+            ("bicubic", ScaleFilter::Bicubic),
+            ("xbrz", ScaleFilter::Xbrz),
+        ] {
+            let cli = Cli::try_parse_from(["spmp8000-emu", "--filter", name, "game.bin"]).unwrap();
+            assert_eq!(cli.filter, expected);
+        }
     }
 }
