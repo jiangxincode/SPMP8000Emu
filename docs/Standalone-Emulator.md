@@ -39,12 +39,19 @@ spmp8000-emu [OPTIONS] <GAME_PATH>
 | `-s, --scale <N>` | `1`–`8` | `2` | Integer scaling factor for the window. |
 | `-f, --fullscreen` | flag | off | Run in fullscreen mode. |
 | `-v, --volume <N>` | `0`–`100` | `100` | Volume level (`0` = mute, `100` = original). |
+| `--swap-ox` | flag | off | Exchange the emulated O and X button signals. |
+| `--debug-logging` | flag | off | Enable sampled CPU debug records and HLE debug records. |
+| `--unknown-instruction-policy <MODE>` | `stop`, `skip` | `stop` | Stop on unknown ARM instructions or skip them for diagnostics. |
 | `--headless` | flag | off | Run without opening a window (for testing/batch processing). |
 | `--frames <N>` | integer | `60` | Number of frames to run in headless mode. |
 | `-S, --screenshot <PATH>` | path | — | Run N frames headlessly, save a PNG screenshot, then exit. |
 | `--screenshot-frames <N>` | integer | `30` | Number of frames to run before the screenshot is taken. |
 
 `--screenshot-frames` only has an effect together with `--screenshot`.
+
+The core-configuration defaults match the RetroArch core defaults. The `skip`
+unknown-instruction policy is diagnostic-only; unsupported Thumb mode still
+stops rather than advancing with undefined behavior.
 
 ## Audio Output
 
@@ -84,6 +91,9 @@ spmp8000-emu --scale 3 --volume 80 path/to/game.bin
 
 # Fullscreen mode
 spmp8000-emu --fullscreen path/to/game.bin
+
+# Swap O/X and continue past unknown ARM instructions for diagnostics
+spmp8000-emu --swap-ox --unknown-instruction-policy skip path/to/game.bin
 ```
 
 ## Headless Mode

@@ -7,13 +7,29 @@
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use minifb::{Key, Window, WindowOptions};
+use spmp8000emu_core::config::{CoreConfig, UnknownInstructionPolicy};
 use spmp8000emu_core::emulator::Emulator;
 
 mod audio_output;
 
 use audio_output::AudioOutput;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum UnknownInstructionMode {
+    Stop,
+    Skip,
+}
+
+impl From<UnknownInstructionMode> for UnknownInstructionPolicy {
+    fn from(value: UnknownInstructionMode) -> Self {
+        match value {
+            UnknownInstructionMode::Stop => Self::Stop,
+            UnknownInstructionMode::Skip => Self::Skip,
+        }
+    }
+}
 
 /// SPMP8000 Game Emulator
 #[derive(Parser)]
@@ -36,6 +52,18 @@ struct Cli {
     #[arg(short, long, default_value = "100", value_parser = clap::value_parser!(u32).range(0..=100))]
     volume: u32,
 
+    /// Swap the emulated O and X buttons
+    #[arg(long = "swap-ox")]
+    swap_o_x: bool,
+
+    /// Enable CPU and HLE debug logging
+    #[arg(long)]
+    debug_logging: bool,
+
+    /// Behavior when an unknown ARM instruction is encountered
+    #[arg(long, value_enum, default_value_t = UnknownInstructionMode::Stop)]
+    unknown_instruction_policy: UnknownInstructionMode,
+
     /// Run without opening a window
     #[arg(long)]
     headless: bool,
@@ -54,12 +82,13 @@ struct Cli {
 }
 
 fn main() -> Result<()> {
+    let cli = Cli::parse();
+
     // Initialize logging
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+    let default_log_filter = if cli.debug_logging { "debug" } else { "info" };
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_log_filter))
         .format_timestamp_millis()
         .init();
-
-    let cli = Cli::parse();
 
     // Validate game path
     if !cli.game_path.exists() {
@@ -70,7 +99,13 @@ fn main() -> Result<()> {
     log::info!("Loading game: {}", cli.game_path.display());
 
     // Create the emulator
-    let mut emu = Emulator::from_path(cli.game_path.clone(), cli.volume)
+    let config = CoreConfig {
+        volume: cli.volume,
+        swap_o_x: cli.swap_o_x,
+        debug_logging: cli.debug_logging,
+        unknown_instruction_policy: cli.unknown_instruction_policy.into(),
+    };
+    let mut emu = Emulator::from_path_with_config(cli.game_path.clone(), config)
         .context("Failed to create emulator")?;
 
     let (width, height) = emu.get_resolution();
@@ -213,4 +248,39 @@ fn main() -> Result<()> {
 
     log::info!("Emulator shutdown");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_core_config_defaults_match_libretro_defaults() {
+        let cli = Cli::try_parse_from(["spmp8000-emu", "game.bin"]).unwrap();
+
+        assert_eq!(cli.volume, CoreConfig::default().volume);
+        assert!(!cli.swap_o_x);
+        assert!(!cli.debug_logging);
+        assert_eq!(cli.unknown_instruction_policy, UnknownInstructionMode::Stop);
+    }
+
+    #[test]
+    fn cli_parses_all_core_config_overrides() {
+        let cli = Cli::try_parse_from([
+            "spmp8000-emu",
+            "--volume",
+            "35",
+            "--swap-ox",
+            "--debug-logging",
+            "--unknown-instruction-policy",
+            "skip",
+            "game.bin",
+        ])
+        .unwrap();
+
+        assert_eq!(cli.volume, 35);
+        assert!(cli.swap_o_x);
+        assert!(cli.debug_logging);
+        assert_eq!(cli.unknown_instruction_policy, UnknownInstructionMode::Skip);
+    }
 }

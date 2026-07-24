@@ -7,6 +7,8 @@ use crate::memory::Memory;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
+const DEBUG_LOG_INTERVAL: u64 = 1 << 18;
+
 /// ARM CPU registers
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArmRegisters {
@@ -347,6 +349,10 @@ impl ArmCpu {
         let instr = memory
             .read_u32(pc)
             .map_err(|e| CpuError::MemoryError(e.to_string()))?;
+
+        if self.debug && self.instruction_count % DEBUG_LOG_INTERVAL == 1 {
+            log::debug!("CPU PC=0x{pc:08X} instruction=0x{instr:08X}");
+        }
 
         // Advance PC
         self.regs.pc = pc.wrapping_add(4);

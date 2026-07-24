@@ -6,6 +6,7 @@
 use super::callbacks;
 use super::constants::*;
 use super::types::*;
+use spmp8000emu_core::config::{CoreConfig, UnknownInstructionPolicy};
 use spmp8000emu_core::emulator::Emulator;
 use std::ffi::{c_void, CStr};
 use std::ptr;
@@ -32,6 +33,7 @@ unsafe fn get_emulator_mut() -> &'static mut Emulator {
 #[no_mangle]
 pub extern "C" fn retro_set_environment(cb: retro_environment_t) {
     callbacks::set_environment(cb);
+    set_core_options();
 }
 
 #[no_mangle]
@@ -76,6 +78,7 @@ pub extern "C" fn retro_deinit() {
     unsafe {
         EMULATOR = None;
     }
+    super::logger::set_debug_logging(false);
     log::info!("SPMP8000Emu libretro core deinitialized");
 }
 
@@ -137,8 +140,12 @@ pub extern "C" fn retro_load_game(info: *const retro_game_info) -> bool {
             &PERFORMANCE_LEVEL as *const _ as *mut c_void,
         );
 
+        let config = read_core_config();
+        super::logger::set_debug_logging(config.debug_logging);
+        log_core_config("loaded", &config);
+
         // Create emulator instance
-        match Emulator::from_path(std::path::PathBuf::from(path), 100) {
+        match Emulator::from_path_with_config(std::path::PathBuf::from(path), config) {
             Ok(mut emu) => {
                 let (width, height) = emu.get_resolution();
                 log::info!("Game loaded: {} ({}x{})", path, width, height);
@@ -188,6 +195,13 @@ pub extern "C" fn retro_get_system_av_info(info: *mut retro_system_av_info) {
 #[no_mangle]
 pub extern "C" fn retro_run() {
     unsafe {
+        if core_options_changed() {
+            let config = read_core_config();
+            super::logger::set_debug_logging(config.debug_logging);
+            log_core_config("updated", &config);
+            get_emulator_mut().set_config(config);
+        }
+
         let emu = get_emulator_mut();
 
         // Poll input
@@ -241,6 +255,17 @@ pub extern "C" fn retro_run() {
             callbacks::audio_sample_batch(samples.as_ptr(), samples.len() / 2);
         }
     }
+}
+
+fn log_core_config(action: &str, config: &CoreConfig) {
+    log::info!(
+        "Core options {}: volume={} swap_o_x={} debug_logging={} unknown_instruction_policy={:?}",
+        action,
+        config.volume,
+        config.swap_o_x,
+        config.debug_logging,
+        config.unknown_instruction_policy
+    );
 }
 
 // ============================================================
@@ -421,6 +446,94 @@ fn register_input_descriptors() {
     );
 }
 
+fn core_option_variables() -> [retro_variable; 5] {
+    [
+        retro_variable {
+            key: c"spmp8000emu_volume".as_ptr(),
+            value: c"Audio Volume (%); 100|90|80|70|60|50|40|30|20|10|0".as_ptr(),
+        },
+        retro_variable {
+            key: c"spmp8000emu_swap_ox".as_ptr(),
+            value: c"Swap O/X Buttons; disabled|enabled".as_ptr(),
+        },
+        retro_variable {
+            key: c"spmp8000emu_debug_logging".as_ptr(),
+            value: c"CPU/HLE Debug Logging; disabled|enabled".as_ptr(),
+        },
+        retro_variable {
+            key: c"spmp8000emu_unknown_instruction".as_ptr(),
+            value: c"Unknown ARM Instruction Policy; stop|skip".as_ptr(),
+        },
+        retro_variable {
+            key: ptr::null(),
+            value: ptr::null(),
+        },
+    ]
+}
+
+fn set_core_options() {
+    let variables = core_option_variables();
+    callbacks::environment(
+        RETRO_ENVIRONMENT_SET_VARIABLES,
+        variables.as_ptr() as *mut c_void,
+    );
+}
+
+fn get_core_option(key: &CStr) -> Option<String> {
+    let mut variable = retro_variable {
+        key: key.as_ptr(),
+        value: ptr::null(),
+    };
+    let success = callbacks::environment(
+        RETRO_ENVIRONMENT_GET_VARIABLE,
+        &mut variable as *mut _ as *mut c_void,
+    );
+    if success && !variable.value.is_null() {
+        unsafe {
+            CStr::from_ptr(variable.value)
+                .to_str()
+                .ok()
+                .map(str::to_owned)
+        }
+    } else {
+        None
+    }
+}
+
+fn core_options_changed() -> bool {
+    let mut updated = false;
+    let success = callbacks::environment(
+        RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE,
+        &mut updated as *mut _ as *mut c_void,
+    );
+    success && updated
+}
+
+fn read_core_config() -> CoreConfig {
+    parse_core_config(get_core_option)
+}
+
+fn parse_core_config(mut get: impl FnMut(&CStr) -> Option<String>) -> CoreConfig {
+    let mut config = CoreConfig::default();
+    if let Some(volume) = get(c"spmp8000emu_volume").and_then(|value| value.parse().ok()) {
+        config.volume = volume;
+    }
+    if let Some(swap) = get(c"spmp8000emu_swap_ox") {
+        config.swap_o_x = swap == "enabled";
+    }
+    if let Some(debug) = get(c"spmp8000emu_debug_logging") {
+        config.debug_logging = debug == "enabled";
+    }
+    if let Some(policy) = get(c"spmp8000emu_unknown_instruction") {
+        config.unknown_instruction_policy = if policy == "skip" {
+            UnknownInstructionPolicy::Skip
+        } else {
+            UnknownInstructionPolicy::Stop
+        };
+    }
+    config.normalized()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -451,6 +564,40 @@ mod tests {
     }
 
     #[test]
+    fn core_options_have_stable_keys_and_defaults() {
+        let variables = core_option_variables();
+        let keys: Vec<&CStr> = variables[..4]
+            .iter()
+            .map(|variable| unsafe { CStr::from_ptr(variable.key) })
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                c"spmp8000emu_volume",
+                c"spmp8000emu_swap_ox",
+                c"spmp8000emu_debug_logging",
+                c"spmp8000emu_unknown_instruction",
+            ]
+        );
+        assert!(variables[4].key.is_null());
+
+        let config = parse_core_config(|key| match key.to_bytes() {
+            b"spmp8000emu_volume" => Some("40".to_string()),
+            b"spmp8000emu_swap_ox" => Some("enabled".to_string()),
+            b"spmp8000emu_debug_logging" => Some("enabled".to_string()),
+            b"spmp8000emu_unknown_instruction" => Some("skip".to_string()),
+            _ => None,
+        });
+        assert_eq!(config.volume, 40);
+        assert!(config.swap_o_x);
+        assert!(config.debug_logging);
+        assert_eq!(
+            config.unknown_instruction_policy,
+            UnknownInstructionPolicy::Skip
+        );
+    }
+
+    #[test]
     fn core_naming_and_info_match_implemented_features() {
         let core_info = include_str!("../../spmp8000emu_libretro.info");
         let libretro_manifest = include_str!("../../Cargo.toml");
@@ -472,6 +619,6 @@ mod tests {
         assert!(core_info.contains("corename = \"spmp8000emu\""));
         assert!(core_info.contains("savestate = \"true\""));
         assert!(core_info.contains("input_descriptors = \"true\""));
-        assert!(core_info.contains("core_options = \"false\""));
+        assert!(core_info.contains("core_options = \"true\""));
     }
 }

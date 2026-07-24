@@ -12,6 +12,7 @@ use crate::api::NGameApi;
 use crate::arm_cpu::ArmCpu;
 use crate::audio_engine::AudioEngine;
 use crate::bin_loader::{self, NGameHeader};
+use crate::config::{CoreConfig, UnknownInstructionPolicy};
 use crate::decompressor;
 use crate::function_table::FunctionTable;
 use crate::input_handler::InputHandler;
@@ -36,6 +37,7 @@ pub struct Emulator {
     pub renderer: Renderer,
     pub audio: AudioEngine,
     pub input: InputHandler,
+    pub config: CoreConfig,
 
     // State
     pub tick_count: u64,
@@ -46,6 +48,17 @@ pub struct Emulator {
 impl Emulator {
     /// Create a new emulator from a game file path
     pub fn from_path(path: PathBuf, volume: u32) -> Result<Self> {
+        Self::from_path_with_config(
+            path,
+            CoreConfig {
+                volume,
+                ..CoreConfig::default()
+            },
+        )
+    }
+
+    /// Create a new emulator using shared frontend configuration.
+    pub fn from_path_with_config(path: PathBuf, config: CoreConfig) -> Result<Self> {
         log::info!("Loading game: {}", path.display());
 
         // Read the BIN file
@@ -78,7 +91,7 @@ impl Emulator {
             path,
             header,
             Arc::from(decompressed_data),
-            volume,
+            config,
             InputHandler::new(),
         )?;
 
@@ -90,10 +103,12 @@ impl Emulator {
         path: PathBuf,
         header: NGameHeader,
         boot_code: Arc<[u8]>,
-        volume: u32,
+        config: CoreConfig,
         mut input: InputHandler,
     ) -> Result<Self> {
-        let cpu = ArmCpu::new().context("Failed to create ARM CPU")?;
+        let config = config.normalized();
+        let mut cpu = ArmCpu::new().context("Failed to create ARM CPU")?;
+        cpu.debug = config.debug_logging;
         let mut memory = Memory::new();
         memory
             .init_default()
@@ -103,7 +118,6 @@ impl Emulator {
         Self::load_code(&mut memory, &boot_code)?;
         function_table.setup_in_memory(&mut memory)?;
 
-        let mut cpu = cpu;
         cpu.set_pc(memory::CODE_LOAD_ADDR)?;
         cpu.set_sp(0x00F00000)?;
         cpu.set_register(0, memory::FUNC_TABLE_BASE)?;
@@ -117,7 +131,7 @@ impl Emulator {
         let resolution = header.default_resolution();
         let renderer = Renderer::new(resolution.0, resolution.1);
         let mut audio = AudioEngine::new(22050);
-        audio.set_volume(volume);
+        audio.set_volume(config.volume);
         input.clear();
 
         Ok(Self {
@@ -131,6 +145,7 @@ impl Emulator {
             renderer,
             audio,
             input,
+            config,
             tick_count: 0,
             is_running: false,
             exit_requested: false,
@@ -164,8 +179,17 @@ impl Emulator {
 
     /// Set button state from external input
     pub fn set_buttons(&mut self, buttons: u32) {
+        let buttons = self.config.map_buttons(buttons);
         self.input.set_buttons(buttons);
         self.api.translate_buttons(buttons);
+    }
+
+    /// Apply frontend configuration without rebuilding runtime state.
+    pub fn set_config(&mut self, config: CoreConfig) {
+        let config = config.normalized();
+        self.audio.set_volume(config.volume);
+        self.cpu.debug = config.debug_logging;
+        self.config = config;
     }
 
     /// Execute one frame (30fps)
@@ -202,6 +226,13 @@ impl Emulator {
                 }
                 Err(e) => {
                     let pc = self.cpu.get_pc().unwrap_or(0);
+                    if self.should_skip_cpu_error(&e) {
+                        log::warn!(
+                            "Skipping invalid instruction at PC=0x{:08X}",
+                            pc.wrapping_sub(4)
+                        );
+                        continue;
+                    }
                     log::error!("CPU error at PC=0x{:08X}: {:?}", pc, e);
                     log::error!(
                         "regs: r0=0x{:08X} r1=0x{:08X} r2=0x{:08X} r3=0x{:08X} r4=0x{:08X} r5=0x{:08X} r6=0x{:08X} r7=0x{:08X} r8=0x{:08X} r9=0x{:08X} r10=0x{:08X} r11=0x{:08X} r12=0x{:08X} sp=0x{:08X} lr=0x{:08X}",
@@ -258,6 +289,12 @@ impl Emulator {
             .audio_buffer_addr
             .map(|address| (address, self.api.audio_buffer_size, self.api.audio_channels));
         self.audio.render_frame(&self.memory, streamed_pcm);
+    }
+
+    fn should_skip_cpu_error(&self, error: &crate::arm_cpu::CpuError) -> bool {
+        matches!(error, crate::arm_cpu::CpuError::InvalidInstruction(_))
+            && self.config.unknown_instruction_policy == UnknownInstructionPolicy::Skip
+            && !self.cpu.thumb_mode
     }
 
     fn sync_cpu_registers_to_memory(&mut self) {
@@ -354,7 +391,7 @@ impl Emulator {
             "renderer framebuffer",
         )?;
 
-        let replacement = Self {
+        let mut replacement = Self {
             header: self.header.clone(),
             game_path: self.game_path.clone(),
             boot_code: Arc::clone(&self.boot_code),
@@ -365,10 +402,12 @@ impl Emulator {
             renderer: state.renderer,
             audio: state.audio,
             input: state.input,
+            config: self.config.clone(),
             tick_count: state.tick_count,
             is_running: state.is_running,
             exit_requested: state.exit_requested,
         };
+        replacement.set_config(self.config.clone());
         *self = replacement;
         log::info!("Emulator state restored");
         Ok(())
@@ -393,20 +432,17 @@ impl Emulator {
 
     /// Rebuild all mutable runtime state from the cached boot image.
     pub fn reset(&mut self) -> Result<()> {
-        let debug_enabled = self.cpu.debug;
-        let volume = self.audio.get_volume();
+        let config = self.config.clone();
         let input = self.input.clone();
 
-        let mut replacement = Self::from_loaded_game(
+        let replacement = Self::from_loaded_game(
             self.game_path.clone(),
             self.header.clone(),
             Arc::clone(&self.boot_code),
-            volume,
+            config,
             input,
         )
         .context("Failed to rebuild emulator state")?;
-        replacement.cpu.debug = debug_enabled;
-
         *self = replacement;
         log::info!("Emulator reset");
         Ok(())
@@ -475,7 +511,10 @@ mod tests {
             PathBuf::from("games/reset-test.bin"),
             header,
             Arc::from(boot_code),
-            volume,
+            CoreConfig {
+                volume,
+                ..CoreConfig::default()
+            },
             InputHandler::new(),
         )
         .unwrap()
@@ -521,7 +560,11 @@ mod tests {
         emu.input.set_key_mapping(BUTTON_O, Some(0x20));
         emu.input.set_repeat_timing(250, 50);
         emu.set_buttons(1 << BUTTON_O);
-        emu.cpu.debug = true;
+        emu.set_config(CoreConfig {
+            volume: 37,
+            debug_logging: true,
+            ..CoreConfig::default()
+        });
         emu.cpu.thumb_mode = true;
         emu.cpu.instruction_count = 123;
         emu.cpu.set_register(4, 0xDEAD_BEEF).unwrap();
@@ -596,6 +639,8 @@ mod tests {
         assert_eq!(emu.input.get_key_mapping(BUTTON_O), Some(0x20));
         assert_eq!(emu.input.get_repeat_delay(), 250);
         assert_eq!(emu.input.get_repeat_period(), 50);
+        assert_eq!(emu.config.volume, 37);
+        assert!(emu.config.debug_logging);
     }
 
     #[test]
@@ -755,12 +800,23 @@ mod tests {
         source.serialize(&mut state).unwrap();
 
         let mut loaded_target = test_emulator(100);
+        loaded_target.set_config(CoreConfig {
+            volume: 40,
+            swap_o_x: true,
+            debug_logging: true,
+            unknown_instruction_policy: UnknownInstructionPolicy::Skip,
+        });
         loaded_target.start();
         loaded_target.cpu.regs.r4 = 1;
         loaded_target.deserialize(&state).unwrap();
         assert!(!loaded_target.is_running());
         assert_eq!(loaded_target.cpu.regs.r4, 0);
         assert_eq!(loaded_target.tick_count, 0);
+        assert_eq!(loaded_target.config.volume, 40);
+        assert!(loaded_target.config.swap_o_x);
+        assert!(loaded_target.config.debug_logging);
+        assert_eq!(loaded_target.audio.get_volume(), 40);
+        assert!(loaded_target.cpu.debug);
 
         let mut target = test_emulator(100);
         target.cpu.regs.r4 = 0x1234_5678;
@@ -773,5 +829,53 @@ mod tests {
         different.cpu.regs.r4 = 0x8765_4321;
         assert!(different.deserialize(&state).is_err());
         assert_eq!(different.cpu.regs.r4, 0x8765_4321);
+    }
+
+    #[test]
+    fn live_config_updates_outputs_without_resetting_runtime() {
+        let mut emu = test_emulator(100);
+        emu.start();
+        emu.tick_count = 12;
+        emu.cpu.regs.r4 = 0x1234_5678;
+        emu.memory
+            .write_u32(RAM_BASE + 0x1000, 0xABCD_EF01)
+            .unwrap();
+
+        emu.set_config(CoreConfig {
+            volume: 35,
+            swap_o_x: true,
+            debug_logging: true,
+            unknown_instruction_policy: UnknownInstructionPolicy::Skip,
+        });
+        emu.set_buttons(1 << BUTTON_O);
+
+        assert_eq!(emu.audio.get_volume(), 35);
+        assert!(emu.cpu.debug);
+        assert_eq!(emu.input.get_buttons(), 1 << crate::input_handler::BUTTON_X);
+        assert_eq!(emu.api.raw_key_state, 1 << crate::input_handler::BUTTON_X);
+        assert_eq!(emu.tick_count, 12);
+        assert!(emu.is_running);
+        assert_eq!(emu.cpu.regs.r4, 0x1234_5678);
+        assert_eq!(emu.memory.read_u32(RAM_BASE + 0x1000).unwrap(), 0xABCD_EF01);
+    }
+
+    #[test]
+    fn unknown_instruction_policy_only_skips_invalid_arm_instructions() {
+        let mut emu = test_emulator(100);
+        let invalid = crate::arm_cpu::CpuError::InvalidInstruction(0xFFFF_FFFF);
+
+        assert!(!emu.should_skip_cpu_error(&invalid));
+
+        emu.set_config(CoreConfig {
+            unknown_instruction_policy: UnknownInstructionPolicy::Skip,
+            ..CoreConfig::default()
+        });
+        assert!(emu.should_skip_cpu_error(&invalid));
+        assert!(
+            !emu.should_skip_cpu_error(&crate::arm_cpu::CpuError::MemoryError("test".to_string()))
+        );
+
+        emu.cpu.thumb_mode = true;
+        assert!(!emu.should_skip_cpu_error(&invalid));
     }
 }
