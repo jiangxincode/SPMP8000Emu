@@ -16,8 +16,8 @@ Version numbers must be updated in **three files**:
 | File | Field | Current |
 |------|-------|---------|
 | `Cargo.toml` (workspace root) | `[workspace.package] version` | `"0.1.0"` |
-| `crates/spmp8000-libretro/spmp8000_libretro.info` | `display_version` | `"0.1.0"` |
-| `crates/spmp8000-libretro/src/libretro/api.rs` | `library_version` | `"0.1.0"` |
+| `crates/spmp8000emu-libretro/spmp8000emu_libretro.info` | `display_version` | `"0.1.0"` |
+| `crates/spmp8000emu-libretro/src/libretro/api.rs` | `library_version` | `"0.1.0"` |
 
 All three values must match. The `.info` file is copied directly into the
 release artifacts — RetroArch reads `display_version` to display the core
@@ -30,17 +30,17 @@ sed -i 's/^version = "0.1.0"/version = "0.2.0"/' Cargo.toml
 
 # 2. Edit .info file
 sed -i 's/^display_version = "0.1.0"/display_version = "0.2.0"/' \
-  crates/spmp8000-libretro/spmp8000_libretro.info
+  crates/spmp8000emu-libretro/spmp8000emu_libretro.info
 
 # 3. Edit api.rs
 sed -i 's/library_version: c"0.1.0"/library_version: c"0.2.0"/' \
-  crates/spmp8000-libretro/src/libretro/api.rs
+  crates/spmp8000emu-libretro/src/libretro/api.rs
 ```
 
 ### 2. Commit the version bump
 
 ```bash
-git add Cargo.toml Cargo.lock crates/spmp8000-libretro/spmp8000_libretro.info crates/spmp8000-libretro/src/libretro/api.rs
+git add Cargo.toml Cargo.lock crates/spmp8000emu-libretro/spmp8000emu_libretro.info crates/spmp8000emu-libretro/src/libretro/api.rs
 git commit -m "chore: bump version to 0.2.0"
 git push origin master
 ```
@@ -60,7 +60,7 @@ Pushing the tag triggers `.github/workflows/release.yml`, which:
 
 1. **Builds standalone binaries** for Linux, macOS (x86_64 + aarch64), and Windows
 2. **Builds libretro cores** for the same platforms, renaming the cdylib to
-   `spmp8000_libretro.<ext>` and bundling `spmp8000_libretro.info`
+   `spmp8000emu_libretro.<ext>` and bundling `spmp8000emu_libretro.info`
 3. **Builds Android libretro cores** for `arm64-v8a`, `armeabi-v7a`, `x86`,
    `x86_64`, packaged as `spmp8000-android-libretro.tar.gz`
 4. **Creates a draft GitHub Release** with:
@@ -86,13 +86,13 @@ Pushing the tag triggers `.github/workflows/release.yml`, which:
 
 RetroArch's **Online Updater > Core Downloader** reads the `.info` file from the
 upstream [libretro-super](https://github.com/libretro/libretro-super) repository
-(`dist/info/spmp8000_libretro.info`), not from this repo. If the `.info` file
+(`dist/info/spmp8000emu_libretro.info`), not from this repo. If the `.info` file
 was changed in this release (version, metadata, supported extensions, etc.), a
 PR must be submitted to sync the changes upstream.
 
 1. Fork [libretro/libretro-super](https://github.com/libretro/libretro-super)
-2. Copy `crates/spmp8000-libretro/spmp8000_libretro.info` from this repo
-   to `dist/info/spmp8000_libretro.info` in the fork
+2. Copy `crates/spmp8000emu-libretro/spmp8000emu_libretro.info` from this repo
+   to `dist/info/spmp8000emu_libretro.info` in the fork
 3. Submit a PR to `libretro/libretro-super` — reference the SPMP8000Emu release
    tag and list the changed fields in the PR description
 
@@ -131,5 +131,5 @@ re-pushing the tag, otherwise the new run may conflict with the existing draft.
 ### Version mismatch in RetroArch
 
 - Ensure all three files have the same version string:
-  `Cargo.toml`, `spmp8000_libretro.info`, and `api.rs`
+  `Cargo.toml`, `spmp8000emu_libretro.info`, and `api.rs`
 - The `.info` file is bundled as-is into the release artifacts
