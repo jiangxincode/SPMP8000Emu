@@ -41,6 +41,8 @@ spmp8000-emu [OPTIONS] <GAME_PATH>
 | `--filter <FILTER>` | `nearest`, `bilinear`, `bicubic`, `xbrz` | `nearest` | Select the display scaling filter. |
 | `-v, --volume <N>` | `0`–`100` | `100` | Volume level (`0` = mute, `100` = original). |
 | `--swap-ox` | flag | off | Exchange the emulated O and X button signals. |
+| `--remap <BUTTON:KEY>` | repeatable mapping | — | Replace a standalone keyboard mapping. |
+| `--show-gamepad` | flag | off | Draw the effective logical button state over the displayed frame. |
 | `--debug-logging` | flag | off | Enable sampled CPU debug records and HLE debug records. |
 | `--unknown-instruction-policy <MODE>` | `stop`, `skip` | `stop` | Stop on unknown ARM instructions or skip them for diagnostics. |
 | `--headless` | flag | off | Run without opening a window (for testing/batch processing). |
@@ -94,6 +96,38 @@ device.
 | Backspace | SELECT |
 | Escape | Exit |
 
+All eight logical buttons can be remapped by repeating `--remap`. Valid button
+names are `up`, `down`, `left`, `right`, `o`, `x`, `start`, and `select`.
+Letter and number keys, F1–F12, arrows, Space, Enter, Backspace, Tab, navigation
+keys, Shift, Ctrl, and Alt are supported. For example:
+
+```bash
+spmp8000-emu --remap o:space --remap select:tab path/to/game.bin
+```
+
+Each remapping replaces that button's default key, and the last mapping wins
+when the same button appears more than once. Escape is permanently reserved
+for exiting the standalone emulator and cannot be assigned to a game button,
+so it never conflicts with SELECT.
+
+Remapping converts physical keys into logical SPMP buttons first.
+`--swap-ox` then exchanges the logical O/X signals. In the standalone
+frontend, Z defaults to O and X defaults to X; in RetroArch, RetroPad A maps to
+O and RetroPad B maps to X. The shared swap option therefore has the same
+logical effect in both frontends.
+
+## Virtual Gamepad Overlay
+
+Use `--show-gamepad` to display the held direction, O, X, START, and SELECT
+states. The overlay shows the effective logical state after `--swap-ox`, is
+drawn at native framebuffer resolution, and then passes through the selected
+display filter. It is intended for diagnostics, demonstrations, and visual
+input confirmation; it is not an interactive or touch input frontend.
+
+The overlay affects only the standalone presentation buffer. Native-resolution
+PNG screenshots created with `--screenshot` do not contain the overlay,
+display filter, or letterboxing.
+
 ## Loading Games
 
 The standalone emulator accepts `.bin` files in NGame1.0 format:
@@ -110,6 +144,9 @@ spmp8000-emu --fullscreen path/to/game.bin
 
 # Swap O/X and continue past unknown ARM instructions for diagnostics
 spmp8000-emu --swap-ox --unknown-instruction-policy skip path/to/game.bin
+
+# Remap O and SELECT, then show the effective logical state
+spmp8000-emu --remap o:space --remap select:tab --show-gamepad path/to/game.bin
 ```
 
 ## Headless Mode
@@ -134,7 +171,7 @@ spmp8000-emu --screenshot screenshot.png --screenshot-frames 300 path/to/game.bi
 This is used by the batch screenshot script (`scripts/batch-screenshots.ps1`)
 to generate screenshots for all games at once. Screenshots always use the
 native framebuffer resolution and do not include the display filter or black
-bars.
+bars. They also do not include the virtual gamepad overlay.
 
 ## Examples
 
@@ -147,6 +184,9 @@ spmp8000-emu --scale 4 path/to/game.bin
 
 # xBRZ display filtering
 spmp8000-emu --filter xbrz path/to/game.bin
+
+# Remapped controls with the virtual gamepad state overlay
+spmp8000-emu --remap o:space --show-gamepad path/to/game.bin
 
 # Fullscreen with 50% volume
 spmp8000-emu --fullscreen --volume 50 path/to/game.bin

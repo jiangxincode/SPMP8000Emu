@@ -8,6 +8,7 @@ use super::constants::*;
 use super::types::*;
 use spmp8000emu_core::config::{CoreConfig, UnknownInstructionPolicy};
 use spmp8000emu_core::emulator::Emulator;
+use spmp8000emu_core::input_handler::Button;
 use std::ffi::{c_void, CStr};
 use std::ptr;
 
@@ -210,28 +211,28 @@ pub extern "C" fn retro_run() {
         // Read button states
         let mut buttons: u32 = 0;
         if callbacks::input_state(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP) != 0 {
-            buttons |= 1 << 0;
+            buttons |= Button::Up.mask();
         }
         if callbacks::input_state(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN) != 0 {
-            buttons |= 1 << 1;
+            buttons |= Button::Down.mask();
         }
         if callbacks::input_state(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT) != 0 {
-            buttons |= 1 << 2;
+            buttons |= Button::Left.mask();
         }
         if callbacks::input_state(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT) != 0 {
-            buttons |= 1 << 3;
+            buttons |= Button::Right.mask();
         }
         if callbacks::input_state(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A) != 0 {
-            buttons |= 1 << 4; // O button
+            buttons |= Button::O.mask();
         }
         if callbacks::input_state(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B) != 0 {
-            buttons |= 1 << 5; // X button
+            buttons |= Button::X.mask();
         }
         if callbacks::input_state(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START) != 0 {
-            buttons |= 1 << 11; // START
+            buttons |= Button::Start.mask();
         }
         if callbacks::input_state(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT) != 0 {
-            buttons |= 1 << 10; // SELECT
+            buttons |= Button::Select.mask();
         }
 
         emu.set_buttons(buttons);

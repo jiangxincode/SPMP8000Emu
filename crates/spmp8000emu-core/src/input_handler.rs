@@ -1,193 +1,105 @@
-// Input handler for SPMP8000 emulator
-//
-// Maps host input (keyboard/gamepad) to SPMP8000 button state
+// Platform-independent SPMP8000 logical button state.
 
 use serde::{Deserialize, Serialize};
 
-/// Button indices
-pub const BUTTON_UP: usize = 0;
-pub const BUTTON_DOWN: usize = 1;
-pub const BUTTON_LEFT: usize = 2;
-pub const BUTTON_RIGHT: usize = 3;
-pub const BUTTON_O: usize = 4; // A/Cross button
-pub const BUTTON_X: usize = 5; // B/Circle button
-pub const BUTTON_START: usize = 11;
-pub const BUTTON_SELECT: usize = 10;
+/// Logical buttons shared by standalone and libretro frontends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum Button {
+    Up = 0,
+    Down = 1,
+    Left = 2,
+    Right = 3,
+    O = 4,
+    X = 5,
+    Select = 10,
+    Start = 11,
+}
 
-/// Input handler state
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl Button {
+    pub const ALL: [Self; 8] = [
+        Self::Up,
+        Self::Down,
+        Self::Left,
+        Self::Right,
+        Self::O,
+        Self::X,
+        Self::Start,
+        Self::Select,
+    ];
+
+    pub const fn index(self) -> usize {
+        self as usize
+    }
+
+    pub const fn mask(self) -> u32 {
+        1 << self.index()
+    }
+}
+
+pub const BUTTON_UP: usize = Button::Up.index();
+pub const BUTTON_DOWN: usize = Button::Down.index();
+pub const BUTTON_LEFT: usize = Button::Left.index();
+pub const BUTTON_RIGHT: usize = Button::Right.index();
+pub const BUTTON_O: usize = Button::O.index();
+pub const BUTTON_X: usize = Button::X.index();
+pub const BUTTON_START: usize = Button::Start.index();
+pub const BUTTON_SELECT: usize = Button::Select.index();
+
+pub const SUPPORTED_BUTTON_MASK: u32 = Button::Up.mask()
+    | Button::Down.mask()
+    | Button::Left.mask()
+    | Button::Right.mask()
+    | Button::O.mask()
+    | Button::X.mask()
+    | Button::Start.mask()
+    | Button::Select.mask();
+
+/// Current logical button state.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct InputHandler {
-    /// Current button state (bitmask)
     buttons: u32,
-    /// Key mappings (button index -> host key code)
-    key_map: Vec<Option<u32>>,
-    /// Typematic delay (ms)
-    repeat_delay: u32,
-    /// Typematic period (ms)
-    repeat_period: u32,
 }
 
 impl InputHandler {
-    /// Create a new input handler
     pub fn new() -> Self {
-        let mut handler = Self {
-            buttons: 0,
-            key_map: vec![None; 32],
-            repeat_delay: 500,
-            repeat_period: 100,
-        };
-
-        // Set default key mappings
-        handler.set_default_mappings();
-        handler
+        Self::default()
     }
 
-    /// Set default keyboard mappings
-    fn set_default_mappings(&mut self) {
-        // Arrow keys
-        self.key_map[BUTTON_UP] = Some(0x26); // Up arrow
-        self.key_map[BUTTON_DOWN] = Some(0x28); // Down arrow
-        self.key_map[BUTTON_LEFT] = Some(0x25); // Left arrow
-        self.key_map[BUTTON_RIGHT] = Some(0x27); // Right arrow
-
-        // Action buttons
-        self.key_map[BUTTON_O] = Some(0x5A); // Z key
-        self.key_map[BUTTON_X] = Some(0x58); // X key
-
-        // System buttons
-        self.key_map[BUTTON_START] = Some(0x0D); // Enter
-        self.key_map[BUTTON_SELECT] = Some(0x1B); // Escape
-    }
-
-    /// Set button state directly
     pub fn set_buttons(&mut self, buttons: u32) {
-        self.buttons = buttons;
+        self.buttons = buttons & SUPPORTED_BUTTON_MASK;
     }
 
-    /// Get current button state
     pub fn get_buttons(&self) -> u32 {
         self.buttons
     }
 
-    /// Press a button
     pub fn press_button(&mut self, button: usize) {
         if button < 32 {
             self.buttons |= 1 << button;
+            self.buttons &= SUPPORTED_BUTTON_MASK;
         }
     }
 
-    /// Release a button
     pub fn release_button(&mut self, button: usize) {
         if button < 32 {
             self.buttons &= !(1 << button);
         }
     }
 
-    /// Check if a button is pressed
     pub fn is_button_pressed(&self, button: usize) -> bool {
-        if button < 32 {
-            (self.buttons & (1 << button)) != 0
-        } else {
-            false
-        }
+        button < 32 && self.buttons & (1 << button) != 0
     }
 
-    /// Process a key press event
-    pub fn key_down(&mut self, key_code: u32) {
-        let buttons_to_press: Vec<usize> = self
-            .key_map
-            .iter()
-            .enumerate()
-            .filter_map(|(button, mapping)| {
-                if let Some(mapped_key) = mapping {
-                    if *mapped_key == key_code {
-                        Some(button)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for button in buttons_to_press {
-            self.press_button(button);
-        }
-    }
-
-    /// Process a key release event
-    pub fn key_up(&mut self, key_code: u32) {
-        let buttons_to_release: Vec<usize> = self
-            .key_map
-            .iter()
-            .enumerate()
-            .filter_map(|(button, mapping)| {
-                if let Some(mapped_key) = mapping {
-                    if *mapped_key == key_code {
-                        Some(button)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for button in buttons_to_release {
-            self.release_button(button);
-        }
-    }
-
-    /// Set custom key mapping
-    pub fn set_key_mapping(&mut self, button: usize, key_code: Option<u32>) {
-        if button < self.key_map.len() {
-            self.key_map[button] = key_code;
-        }
-    }
-
-    /// Get key mapping for a button
-    pub fn get_key_mapping(&self, button: usize) -> Option<u32> {
-        if button < self.key_map.len() {
-            self.key_map[button]
-        } else {
-            None
-        }
-    }
-
-    /// Set typematic timing
-    pub fn set_repeat_timing(&mut self, delay: u32, period: u32) {
-        self.repeat_delay = delay;
-        self.repeat_period = period;
-    }
-
-    /// Get typematic delay
-    pub fn get_repeat_delay(&self) -> u32 {
-        self.repeat_delay
-    }
-
-    /// Get typematic period
-    pub fn get_repeat_period(&self) -> u32 {
-        self.repeat_period
-    }
-
-    /// Clear all button states
     pub fn clear(&mut self) {
         self.buttons = 0;
     }
 
     pub(crate) fn validate_state(&self) -> anyhow::Result<()> {
-        if self.key_map.len() != 32 {
-            anyhow::bail!("save state contains an invalid input mapping");
+        if self.buttons & !SUPPORTED_BUTTON_MASK != 0 {
+            anyhow::bail!("save state contains unsupported input button bits");
         }
         Ok(())
-    }
-}
-
-impl Default for InputHandler {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -196,54 +108,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_input_handler_creation() {
-        let handler = InputHandler::new();
-        assert_eq!(handler.get_buttons(), 0);
+    fn button_masks_cover_all_supported_buttons() {
+        let combined = Button::ALL
+            .iter()
+            .fold(0, |buttons, button| buttons | button.mask());
+        assert_eq!(combined, SUPPORTED_BUTTON_MASK);
+        assert_eq!(Button::ALL.len(), 8);
     }
 
     #[test]
-    fn test_button_press_release() {
+    fn button_state_supports_press_release_and_clear() {
         let mut handler = InputHandler::new();
-
         handler.press_button(BUTTON_UP);
-        assert!(handler.is_button_pressed(BUTTON_UP));
-        assert!(!handler.is_button_pressed(BUTTON_DOWN));
-
         handler.press_button(BUTTON_O);
         assert!(handler.is_button_pressed(BUTTON_UP));
         assert!(handler.is_button_pressed(BUTTON_O));
+        assert!(!handler.is_button_pressed(BUTTON_DOWN));
 
         handler.release_button(BUTTON_UP);
         assert!(!handler.is_button_pressed(BUTTON_UP));
         assert!(handler.is_button_pressed(BUTTON_O));
+
+        handler.clear();
+        assert_eq!(handler.get_buttons(), 0);
     }
 
     #[test]
-    fn test_key_mapping() {
+    fn unsupported_button_bits_are_discarded() {
         let mut handler = InputHandler::new();
-
-        handler.key_down(0x26); // Up arrow
-        assert!(handler.is_button_pressed(BUTTON_UP));
-
-        handler.key_up(0x26);
-        assert!(!handler.is_button_pressed(BUTTON_UP));
-
-        handler.key_down(0x5A); // Z key
-        assert!(handler.is_button_pressed(BUTTON_O));
-    }
-
-    #[test]
-    fn test_custom_mapping() {
-        let mut handler = InputHandler::new();
-
-        // Remap O button to space bar
-        handler.set_key_mapping(BUTTON_O, Some(0x20));
-
-        handler.key_down(0x20);
-        assert!(handler.is_button_pressed(BUTTON_O));
-
-        // Original Z key should not work anymore
-        handler.key_down(0x5A);
-        assert!(handler.is_button_pressed(BUTTON_O)); // Still pressed from space
+        handler.set_buttons(SUPPORTED_BUTTON_MASK | (1 << 31));
+        assert_eq!(handler.get_buttons(), SUPPORTED_BUTTON_MASK);
+        handler.press_button(31);
+        assert_eq!(handler.get_buttons(), SUPPORTED_BUTTON_MASK);
     }
 }

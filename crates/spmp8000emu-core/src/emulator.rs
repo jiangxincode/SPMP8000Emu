@@ -181,7 +181,7 @@ impl Emulator {
     pub fn set_buttons(&mut self, buttons: u32) {
         let buttons = self.config.map_buttons(buttons);
         self.input.set_buttons(buttons);
-        self.api.translate_buttons(buttons);
+        self.api.translate_buttons(self.input.get_buttons());
     }
 
     /// Apply frontend configuration without rebuilding runtime state.
@@ -485,7 +485,7 @@ mod tests {
     use crate::api::{FileHandle, Surface};
     use crate::audio_resource::{AudioCommand, RESOURCE_TYPE_WAV};
     use crate::bin_loader::ChipType;
-    use crate::input_handler::BUTTON_O;
+    use crate::input_handler::{Button, BUTTON_O};
     use crate::memory::{FUNC_TABLE_BASE, PERIPHERAL_BASE, RAM_BASE, REG_R5, VRAM_BASE};
     use crate::renderer::PixelFormat;
 
@@ -557,8 +557,6 @@ mod tests {
         let mut emu = test_emulator(37);
         let initial_trampoline = emu.memory.read_u32(FUNC_TABLE_BASE).unwrap();
 
-        emu.input.set_key_mapping(BUTTON_O, Some(0x20));
-        emu.input.set_repeat_timing(250, 50);
         emu.set_buttons(1 << BUTTON_O);
         emu.set_config(CoreConfig {
             volume: 37,
@@ -636,9 +634,6 @@ mod tests {
         assert_eq!(emu.audio.get_volume(), 37);
         assert!(emu.audio.get_buffer().is_empty());
         assert_eq!(emu.input.get_buttons(), 0);
-        assert_eq!(emu.input.get_key_mapping(BUTTON_O), Some(0x20));
-        assert_eq!(emu.input.get_repeat_delay(), 250);
-        assert_eq!(emu.input.get_repeat_period(), 50);
         assert_eq!(emu.config.volume, 37);
         assert!(emu.config.debug_logging);
     }
@@ -729,8 +724,6 @@ mod tests {
         });
 
         emu.input.set_buttons(1 << BUTTON_O);
-        emu.input.set_key_mapping(BUTTON_O, Some(0x20));
-        emu.input.set_repeat_timing(250, 50);
         emu.tick_count = 77;
         emu.is_running = true;
         emu.exit_requested = true;
@@ -781,9 +774,6 @@ mod tests {
         emu.audio.render_frame(&emu.memory, None);
         assert_eq!(emu.audio.get_buffer(), expected_next_audio);
         assert_eq!(emu.input.get_buttons(), 1 << BUTTON_O);
-        assert_eq!(emu.input.get_key_mapping(BUTTON_O), Some(0x20));
-        assert_eq!(emu.input.get_repeat_delay(), 250);
-        assert_eq!(emu.input.get_repeat_period(), 50);
         assert_eq!(emu.tick_count, 77);
         assert!(emu.is_running);
         assert!(emu.exit_requested);
@@ -857,6 +847,14 @@ mod tests {
         assert!(emu.is_running);
         assert_eq!(emu.cpu.regs.r4, 0x1234_5678);
         assert_eq!(emu.memory.read_u32(RAM_BASE + 0x1000).unwrap(), 0xABCD_EF01);
+    }
+
+    #[test]
+    fn frontend_input_is_limited_to_supported_logical_buttons() {
+        let mut emu = test_emulator(100);
+        emu.set_buttons(Button::O.mask() | (1 << 31));
+        assert_eq!(emu.input.get_buttons(), Button::O.mask());
+        assert_eq!(emu.api.raw_key_state, Button::O.mask());
     }
 
     #[test]

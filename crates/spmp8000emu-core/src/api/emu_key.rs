@@ -1,6 +1,7 @@
 // emuIf input API implementation
 
 use super::NGameApi;
+use crate::input_handler::Button;
 use crate::memory::Memory;
 
 /// Key map indices (from libgame.h)
@@ -100,25 +101,25 @@ impl NGameApi {
         let mut key_state = 0u32;
 
         // Map button bits to NativeGE key bits
-        if buttons & (1 << 0) != 0 {
+        if buttons & Button::Up.mask() != 0 {
             key_state |= GE_KEY_UP;
         }
-        if buttons & (1 << 1) != 0 {
+        if buttons & Button::Down.mask() != 0 {
             key_state |= GE_KEY_DOWN;
         }
-        if buttons & (1 << 2) != 0 {
+        if buttons & Button::Left.mask() != 0 {
             key_state |= GE_KEY_LEFT;
         }
-        if buttons & (1 << 3) != 0 {
+        if buttons & Button::Right.mask() != 0 {
             key_state |= GE_KEY_RIGHT;
         }
-        if buttons & (1 << 4) != 0 {
+        if buttons & Button::O.mask() != 0 {
             key_state |= GE_KEY_O;
         }
-        if buttons & (1 << 5) != 0 {
+        if buttons & Button::X.mask() != 0 {
             key_state |= GE_KEY_X;
         }
-        if buttons & (1 << 11) != 0 {
+        if buttons & Button::Start.mask() != 0 {
             key_state |= GE_KEY_START;
         }
 
@@ -139,7 +140,7 @@ mod tests {
             .map_region(0x1000, 0x100, Permission::ALL, "test")
             .unwrap();
 
-        let buttons = (1 << EMU_KEY_O) | (1 << EMU_KEY_START);
+        let buttons = Button::O.mask() | Button::Start.mask();
         api.translate_buttons(buttons);
 
         api.emu_if_key_get_input(&mut memory);

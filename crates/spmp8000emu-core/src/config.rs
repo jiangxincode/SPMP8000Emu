@@ -1,3 +1,5 @@
+use crate::input_handler::Button;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnknownInstructionPolicy {
     Stop,
@@ -23,14 +25,14 @@ impl CoreConfig {
             return buttons;
         }
 
-        let o_pressed = buttons & (1 << 4) != 0;
-        let x_pressed = buttons & (1 << 5) != 0;
-        let mut mapped = buttons & !((1 << 4) | (1 << 5));
+        let o_pressed = buttons & Button::O.mask() != 0;
+        let x_pressed = buttons & Button::X.mask() != 0;
+        let mut mapped = buttons & !(Button::O.mask() | Button::X.mask());
         if o_pressed {
-            mapped |= 1 << 5;
+            mapped |= Button::X.mask();
         }
         if x_pressed {
-            mapped |= 1 << 4;
+            mapped |= Button::O.mask();
         }
         mapped
     }
@@ -68,7 +70,13 @@ mod tests {
             swap_o_x: true,
             ..CoreConfig::default()
         };
-        assert_eq!(config.map_buttons((1 << 0) | (1 << 4)), (1 << 0) | (1 << 5));
-        assert_eq!(config.map_buttons((1 << 4) | (1 << 5)), (1 << 4) | (1 << 5));
+        assert_eq!(
+            config.map_buttons(Button::Up.mask() | Button::O.mask()),
+            Button::Up.mask() | Button::X.mask()
+        );
+        assert_eq!(
+            config.map_buttons(Button::O.mask() | Button::X.mask()),
+            Button::O.mask() | Button::X.mask()
+        );
     }
 }
