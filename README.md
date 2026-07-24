@@ -32,6 +32,7 @@ ARM-based CPU and HLE system API.
 - **True reset** — rebuilds CPU, memory, HLE, graphics, audio, and input runtime state
 - **Save states** — versioned, checksummed snapshots of the complete emulator runtime
 - **Live core options** — adjust volume, O/X layout, and diagnostics without resetting the game
+- **Memory and cheats** — inspect SPMP RAM/VRAM and freeze validated memory addresses or ARM registers
 - **Standalone mode** — minifb window with CLI
 - **Cross-platform** — Windows, macOS, Linux, Android, iOS, webOS
 - **Headless mode** — run without a window for testing and batch processing

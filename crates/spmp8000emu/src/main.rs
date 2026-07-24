@@ -110,6 +110,11 @@ fn main() -> Result<()> {
     };
     let mut emu = Emulator::from_path_with_config(cli.game_path.clone(), config)
         .context("Failed to create emulator")?;
+    for cheat in &cli.cheats {
+        if let Err(error) = emu.add_cheat(cheat) {
+            log::warn!("Ignoring invalid cheat '{}': {}", cheat, error);
+        }
+    }
 
     let (width, height) = emu.get_resolution();
     let display_width = width * cli.scale;

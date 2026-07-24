@@ -186,6 +186,32 @@ impl Memory {
             .find(|r| addr >= r.base && addr < r.base + r.size)
     }
 
+    fn region_data(&self, base: u32, size: u32) -> Option<&[u8]> {
+        self.regions
+            .iter()
+            .find(|region| region.base == base && region.size == size)
+            .map(|region| region.data.as_slice())
+    }
+
+    fn region_data_mut(&mut self, base: u32, size: u32) -> Option<&mut [u8]> {
+        self.regions
+            .iter_mut()
+            .find(|region| region.base == base && region.size == size)
+            .map(|region| region.data.as_mut_slice())
+    }
+
+    fn region_for_range(&self, addr: u32, size: usize) -> Option<&MemoryRegion> {
+        let size = u32::try_from(size).ok()?;
+        if size == 0 {
+            return None;
+        }
+        let end = addr.checked_add(size)?;
+        self.regions.iter().find(|region| {
+            let region_end = region.base.checked_add(region.size);
+            addr >= region.base && region_end.is_some_and(|region_end| end <= region_end)
+        })
+    }
+
     /// Read a single byte
     pub fn read_u8(&self, addr: u32) -> Result<u8> {
         let region = self
@@ -281,6 +307,54 @@ impl Memory {
         if reg < 17 {
             self.registers[reg] = value;
         }
+    }
+
+    /// Get the contiguous 16 MiB system RAM exposed to frontends.
+    pub fn system_ram(&self) -> Option<&[u8]> {
+        self.region_data(RAM_BASE, RAM_SIZE)
+    }
+
+    /// Get mutable system RAM without changing its allocation.
+    pub fn system_ram_mut(&mut self) -> Option<&mut [u8]> {
+        self.region_data_mut(RAM_BASE, RAM_SIZE)
+    }
+
+    /// Get the contiguous 16 MiB video RAM exposed to frontends.
+    pub fn video_ram(&self) -> Option<&[u8]> {
+        self.region_data(VRAM_BASE, VRAM_SIZE)
+    }
+
+    /// Get mutable video RAM without changing its allocation.
+    pub fn video_ram_mut(&mut self) -> Option<&mut [u8]> {
+        self.region_data_mut(VRAM_BASE, VRAM_SIZE)
+    }
+
+    /// Get the memory-mapped peripheral storage used by memory descriptors.
+    pub fn peripheral_memory(&self) -> Option<&[u8]> {
+        self.region_data(PERIPHERAL_BASE, PERIPHERAL_SIZE)
+    }
+
+    /// Get mutable memory-mapped peripheral storage.
+    pub fn peripheral_memory_mut(&mut self) -> Option<&mut [u8]> {
+        self.region_data_mut(PERIPHERAL_BASE, PERIPHERAL_SIZE)
+    }
+
+    /// Check whether a cheat can safely write a complete RAM or VRAM value.
+    pub fn is_cheat_writable_range(&self, addr: u32, size: usize) -> bool {
+        self.region_for_range(addr, size).is_some_and(|region| {
+            region.permissions.write && matches!(region.base, RAM_BASE | VRAM_BASE)
+        })
+    }
+
+    /// Copy a validated memory state while preserving frontend-visible pointers.
+    pub(crate) fn copy_state_from(&mut self, source: &Self) -> Result<()> {
+        self.validate_state()?;
+        source.validate_state()?;
+        for (destination, source) in self.regions.iter_mut().zip(&source.regions) {
+            destination.data.copy_from_slice(&source.data);
+        }
+        self.registers = source.registers;
+        Ok(())
     }
 
     /// Get all regions (for debugging)
@@ -392,5 +466,50 @@ mod tests {
 
         assert!(memory.read_u32(0x2000).is_err());
         assert!(memory.write_u32(0x2000, 0).is_err());
+    }
+
+    #[test]
+    fn default_regions_have_stable_frontend_slices() {
+        let mut memory = Memory::new();
+        memory.init_default().unwrap();
+
+        assert_eq!(memory.system_ram().unwrap().len(), RAM_SIZE as usize);
+        assert_eq!(memory.video_ram().unwrap().len(), VRAM_SIZE as usize);
+        assert_eq!(
+            memory.peripheral_memory().unwrap().len(),
+            PERIPHERAL_SIZE as usize
+        );
+        memory.system_ram_mut().unwrap()[0x1234] = 0x5A;
+        memory.video_ram_mut().unwrap()[0x20] = 0xA5;
+        assert_eq!(memory.read_u8(RAM_BASE + 0x1234).unwrap(), 0x5A);
+        assert_eq!(memory.read_u8(VRAM_BASE + 0x20).unwrap(), 0xA5);
+    }
+
+    #[test]
+    fn state_copy_preserves_region_allocations() {
+        let mut destination = Memory::new();
+        destination.init_default().unwrap();
+        let ram_pointer = destination.system_ram_mut().unwrap().as_mut_ptr();
+        let vram_pointer = destination.video_ram_mut().unwrap().as_mut_ptr();
+
+        let mut source = Memory::new();
+        source.init_default().unwrap();
+        source.write_u32(RAM_BASE + 4, 0x1234_5678).unwrap();
+        source.write_u32(VRAM_BASE + 8, 0xCAFE_BABE).unwrap();
+        source.set_register(REG_R5, 99);
+
+        destination.copy_state_from(&source).unwrap();
+
+        assert_eq!(
+            destination.system_ram_mut().unwrap().as_mut_ptr(),
+            ram_pointer
+        );
+        assert_eq!(
+            destination.video_ram_mut().unwrap().as_mut_ptr(),
+            vram_pointer
+        );
+        assert_eq!(destination.read_u32(RAM_BASE + 4).unwrap(), 0x1234_5678);
+        assert_eq!(destination.read_u32(VRAM_BASE + 8).unwrap(), 0xCAFE_BABE);
+        assert_eq!(destination.get_register(REG_R5), 99);
     }
 }

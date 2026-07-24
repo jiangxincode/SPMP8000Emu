@@ -60,6 +60,10 @@ pub struct Cli {
     #[arg(long)]
     pub show_gamepad: bool,
 
+    /// Freeze a memory address or ARM register using a cheat rule
+    #[arg(long = "cheat", value_name = "RULE")]
+    pub cheats: Vec<String>,
+
     /// Enable CPU and HLE debug logging
     #[arg(long)]
     pub debug_logging: bool,
@@ -103,6 +107,7 @@ mod tests {
         assert!(!cli.swap_o_x);
         assert!(!cli.show_gamepad);
         assert!(cli.remappings.is_empty());
+        assert!(cli.cheats.is_empty());
         assert!(!cli.debug_logging);
         assert_eq!(cli.unknown_instruction_policy, UnknownInstructionMode::Stop);
         assert_eq!(cli.filter, ScaleFilter::Nearest);
@@ -120,6 +125,10 @@ mod tests {
             "--remap",
             "select:tab",
             "--show-gamepad",
+            "--cheat",
+            "mem8:0x1234=99",
+            "--cheat",
+            "reg:r0=0x1234",
             "--debug-logging",
             "--unknown-instruction-policy",
             "skip",
@@ -131,6 +140,10 @@ mod tests {
         assert!(cli.swap_o_x);
         assert_eq!(cli.remappings.len(), 2);
         assert!(cli.show_gamepad);
+        assert_eq!(
+            cli.cheats,
+            ["mem8:0x1234=99".to_string(), "reg:r0=0x1234".to_string()]
+        );
         assert!(cli.debug_logging);
         assert_eq!(cli.unknown_instruction_policy, UnknownInstructionMode::Skip);
     }

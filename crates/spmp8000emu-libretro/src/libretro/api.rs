@@ -9,6 +9,9 @@ use super::types::*;
 use spmp8000emu_core::config::{CoreConfig, UnknownInstructionPolicy};
 use spmp8000emu_core::emulator::Emulator;
 use spmp8000emu_core::input_handler::Button;
+use spmp8000emu_core::memory::{
+    Memory, PERIPHERAL_BASE, PERIPHERAL_SIZE, RAM_BASE, RAM_SIZE, VRAM_BASE, VRAM_SIZE,
+};
 use std::ffi::{c_void, CStr};
 use std::ptr;
 
@@ -152,6 +155,7 @@ pub extern "C" fn retro_load_game(info: *const retro_game_info) -> bool {
                 log::info!("Game loaded: {} ({}x{})", path, width, height);
                 emu.start();
                 EMULATOR = Some(emu);
+                register_memory_maps(get_emulator_mut());
                 true
             }
             Err(e) => {
@@ -341,10 +345,42 @@ pub extern "C" fn retro_get_region() -> u32 {
 }
 
 #[no_mangle]
-pub extern "C" fn retro_cheat_reset() {}
+pub extern "C" fn retro_cheat_reset() {
+    unsafe {
+        if let Some(emu) = EMULATOR.as_mut() {
+            emu.clear_cheats();
+        }
+    }
+}
 
 #[no_mangle]
-pub extern "C" fn retro_cheat_set(_index: u32, _enabled: bool, _code: *const std::ffi::c_char) {}
+pub extern "C" fn retro_cheat_set(index: u32, enabled: bool, code: *const std::ffi::c_char) {
+    unsafe {
+        let Some(emu) = EMULATOR.as_mut() else {
+            return;
+        };
+        let code = if code.is_null() {
+            ""
+        } else {
+            match CStr::from_ptr(code).to_str() {
+                Ok(code) => code,
+                Err(error) => {
+                    log::warn!("Ignoring invalid UTF-8 cheat at slot {}: {}", index, error);
+                    return;
+                }
+            }
+        };
+
+        if let Err(error) = emu.set_cheat_slot(index, enabled, code) {
+            log::warn!(
+                "Ignoring invalid cheat at slot {} ('{}'): {}",
+                index,
+                code,
+                error
+            );
+        }
+    }
+}
 
 #[no_mangle]
 pub extern "C" fn retro_reset() {
@@ -362,13 +398,94 @@ pub extern "C" fn retro_reset() {
 }
 
 #[no_mangle]
-pub extern "C" fn retro_get_memory_data(_id: u32) -> *mut c_void {
-    ptr::null_mut()
+pub extern "C" fn retro_get_memory_data(id: u32) -> *mut c_void {
+    unsafe {
+        let Some(emu) = EMULATOR.as_mut() else {
+            return ptr::null_mut();
+        };
+        match id & RETRO_MEMORY_MASK {
+            RETRO_MEMORY_SYSTEM_RAM => emu
+                .memory
+                .system_ram_mut()
+                .map_or(ptr::null_mut(), |ram| ram.as_mut_ptr().cast()),
+            RETRO_MEMORY_VIDEO_RAM => emu
+                .memory
+                .video_ram_mut()
+                .map_or(ptr::null_mut(), |vram| vram.as_mut_ptr().cast()),
+            _ => ptr::null_mut(),
+        }
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn retro_get_memory_size(_id: u32) -> usize {
-    0
+pub extern "C" fn retro_get_memory_size(id: u32) -> usize {
+    unsafe {
+        let Some(emu) = EMULATOR.as_ref() else {
+            return 0;
+        };
+        match id & RETRO_MEMORY_MASK {
+            RETRO_MEMORY_SYSTEM_RAM => emu.memory.system_ram().map_or(0, <[u8]>::len),
+            RETRO_MEMORY_VIDEO_RAM => emu.memory.video_ram().map_or(0, <[u8]>::len),
+            _ => 0,
+        }
+    }
+}
+
+fn memory_descriptors(memory: &mut Memory) -> Option<[retro_memory_descriptor; 3]> {
+    let ram = memory.system_ram_mut()?.as_mut_ptr().cast();
+    let vram = memory.video_ram_mut()?.as_mut_ptr().cast();
+    let peripherals = memory.peripheral_memory_mut()?.as_mut_ptr().cast();
+    Some([
+        retro_memory_descriptor {
+            flags: RETRO_MEMDESC_SYSTEM_RAM,
+            ptr: ram,
+            offset: 0,
+            start: RAM_BASE as usize,
+            select: 0,
+            disconnect: 0,
+            len: RAM_SIZE as usize,
+            addrspace: c"SPMP".as_ptr(),
+        },
+        retro_memory_descriptor {
+            flags: RETRO_MEMDESC_VIDEO_RAM,
+            ptr: vram,
+            offset: 0,
+            start: VRAM_BASE as usize,
+            select: 0,
+            disconnect: 0,
+            len: VRAM_SIZE as usize,
+            addrspace: c"SPMP".as_ptr(),
+        },
+        retro_memory_descriptor {
+            flags: 0,
+            ptr: peripherals,
+            offset: 0,
+            start: PERIPHERAL_BASE as usize,
+            select: 0,
+            disconnect: 0,
+            len: PERIPHERAL_SIZE as usize,
+            addrspace: c"SPMP".as_ptr(),
+        },
+    ])
+}
+
+fn register_memory_maps(emu: &mut Emulator) {
+    let Some(descriptors) = memory_descriptors(&mut emu.memory) else {
+        log::error!("Failed to expose the SPMP8000 memory map");
+        return;
+    };
+    let memory_map = retro_memory_map {
+        descriptors: descriptors.as_ptr(),
+        num_descriptors: descriptors.len() as u32,
+    };
+    if callbacks::environment(
+        RETRO_ENVIRONMENT_SET_MEMORY_MAPS,
+        &memory_map as *const _ as *mut c_void,
+    ) {
+        log::info!("Registered RAM, VRAM, and peripheral memory descriptors");
+    } else {
+        log::warn!("Frontend did not accept SPMP8000 memory descriptors");
+    }
 }
 
 fn input_descriptors() -> [retro_input_descriptor; 9] {
@@ -538,6 +655,30 @@ fn parse_core_config(mut get: impl FnMut(&CStr) -> Option<String>) -> CoreConfig
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::CString;
+
+    #[test]
+    fn memory_descriptor_list_matches_the_spmp_address_space() {
+        let mut memory = Memory::new();
+        memory.init_default().unwrap();
+        let descriptors = memory_descriptors(&mut memory).unwrap();
+
+        assert_eq!(descriptors[0].flags, RETRO_MEMDESC_SYSTEM_RAM);
+        assert_eq!(descriptors[0].start, RAM_BASE as usize);
+        assert_eq!(descriptors[0].len, RAM_SIZE as usize);
+        assert_eq!(descriptors[1].flags, RETRO_MEMDESC_VIDEO_RAM);
+        assert_eq!(descriptors[1].start, VRAM_BASE as usize);
+        assert_eq!(descriptors[1].len, VRAM_SIZE as usize);
+        assert_eq!(descriptors[2].flags, 0);
+        assert_eq!(descriptors[2].start, PERIPHERAL_BASE as usize);
+        assert_eq!(descriptors[2].len, PERIPHERAL_SIZE as usize);
+        assert!(descriptors
+            .iter()
+            .all(|descriptor| !descriptor.ptr.is_null()));
+        assert!(descriptors
+            .iter()
+            .all(|descriptor| unsafe { CStr::from_ptr(descriptor.addrspace) == c"SPMP" }));
+    }
 
     #[test]
     fn input_descriptor_list_covers_all_supported_buttons() {
@@ -619,7 +760,93 @@ mod tests {
         assert!(buildbot_config.contains("CORENAME: spmp8000emu"));
         assert!(core_info.contains("corename = \"spmp8000emu\""));
         assert!(core_info.contains("savestate = \"true\""));
+        assert!(core_info.contains("cheats = \"true\""));
         assert!(core_info.contains("input_descriptors = \"true\""));
+        assert!(core_info.contains("memory_descriptors = \"true\""));
         assert!(core_info.contains("core_options = \"true\""));
+    }
+
+    unsafe extern "C" fn integration_environment(cmd: u32, _data: *mut c_void) -> bool {
+        !matches!(
+            cmd,
+            RETRO_ENVIRONMENT_GET_VARIABLE | RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE
+        )
+    }
+
+    #[test]
+    #[ignore = "requires local SmartBlocks game assets (set SPMP8000_GAME_DIR)"]
+    fn real_content_exposes_memory_and_applies_libretro_cheat_slots() {
+        let game_dir = std::env::var_os("SPMP8000_GAME_DIR").expect("SPMP8000_GAME_DIR is not set");
+        let game_path = std::path::PathBuf::from(game_dir).join("SmartBlocks-1.4.2_P_new.bin");
+        assert!(game_path.is_file(), "missing {}", game_path.display());
+        let game_path = CString::new(game_path.to_string_lossy().as_bytes()).unwrap();
+
+        retro_set_environment(integration_environment);
+        let game_info = retro_game_info {
+            path: game_path.as_ptr(),
+            data: ptr::null(),
+            size: 0,
+            meta: ptr::null(),
+        };
+        assert!(retro_load_game(&game_info));
+        assert_eq!(
+            retro_get_memory_size(RETRO_MEMORY_SYSTEM_RAM),
+            RAM_SIZE as usize
+        );
+        assert_eq!(
+            retro_get_memory_size(RETRO_MEMORY_VIDEO_RAM),
+            VRAM_SIZE as usize
+        );
+        let ram = retro_get_memory_data(RETRO_MEMORY_SYSTEM_RAM).cast::<u8>();
+        let vram = retro_get_memory_data(RETRO_MEMORY_VIDEO_RAM);
+        assert!(!ram.is_null());
+        assert!(!vram.is_null());
+
+        let freeze = CString::new("mem32:0x00001000=0x12345678").unwrap();
+        let disabled = CString::new("mem32:0x00001000=0").unwrap();
+        retro_cheat_set(0, true, freeze.as_ptr());
+        retro_cheat_set(1, false, disabled.as_ptr());
+        retro_run();
+        assert_eq!(
+            unsafe { std::ptr::read_unaligned(ram.add(0x1000).cast::<u32>()) },
+            0x1234_5678
+        );
+
+        unsafe {
+            std::ptr::write_unaligned(ram.add(0x1000).cast::<u32>(), 0);
+        }
+        let invalid = CString::new("mem32:0x02000000=1").unwrap();
+        retro_cheat_set(0, true, invalid.as_ptr());
+        retro_run();
+        assert_eq!(
+            unsafe { std::ptr::read_unaligned(ram.add(0x1000).cast::<u32>()) },
+            0x1234_5678
+        );
+
+        let original_ram = ram;
+        retro_reset();
+        assert_eq!(
+            retro_get_memory_data(RETRO_MEMORY_SYSTEM_RAM).cast::<u8>(),
+            original_ram
+        );
+        retro_run();
+        assert_eq!(
+            unsafe { std::ptr::read_unaligned(ram.add(0x1000).cast::<u32>()) },
+            0x1234_5678
+        );
+
+        retro_cheat_reset();
+        unsafe {
+            std::ptr::write_unaligned(ram.add(0x1000).cast::<u32>(), 0);
+        }
+        retro_run();
+        assert_eq!(
+            unsafe { std::ptr::read_unaligned(ram.add(0x1000).cast::<u32>()) },
+            0
+        );
+
+        retro_unload_game();
+        assert!(retro_get_memory_data(RETRO_MEMORY_SYSTEM_RAM).is_null());
+        assert_eq!(retro_get_memory_size(RETRO_MEMORY_SYSTEM_RAM), 0);
     }
 }

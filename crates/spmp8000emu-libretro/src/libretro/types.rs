@@ -2,7 +2,7 @@
 
 #![allow(non_camel_case_types)]
 
-use std::ffi::c_char;
+use std::ffi::{c_char, c_void};
 
 /// API version constant
 pub const RETRO_API_VERSION: u32 = 1;
@@ -77,6 +77,26 @@ pub struct retro_input_descriptor {
     pub index: u32,
     pub id: u32,
     pub description: *const c_char,
+}
+
+/// One directly accessible region in the emulated address space.
+#[repr(C)]
+pub struct retro_memory_descriptor {
+    pub flags: u64,
+    pub ptr: *mut c_void,
+    pub offset: usize,
+    pub start: usize,
+    pub select: usize,
+    pub disconnect: usize,
+    pub len: usize,
+    pub addrspace: *const c_char,
+}
+
+/// A frontend-visible list of emulated memory regions.
+#[repr(C)]
+pub struct retro_memory_map {
+    pub descriptors: *const retro_memory_descriptor,
+    pub num_descriptors: u32,
 }
 
 /// Log callback type

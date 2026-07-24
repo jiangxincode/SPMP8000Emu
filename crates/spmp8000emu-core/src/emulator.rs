@@ -12,6 +12,7 @@ use crate::api::NGameApi;
 use crate::arm_cpu::ArmCpu;
 use crate::audio_engine::AudioEngine;
 use crate::bin_loader::{self, NGameHeader};
+use crate::cheats::{CheatManager, CheatParseError};
 use crate::config::{CoreConfig, UnknownInstructionPolicy};
 use crate::decompressor;
 use crate::function_table::FunctionTable;
@@ -37,6 +38,7 @@ pub struct Emulator {
     pub renderer: Renderer,
     pub audio: AudioEngine,
     pub input: InputHandler,
+    pub cheats: CheatManager,
     pub config: CoreConfig,
 
     // State
@@ -145,6 +147,7 @@ impl Emulator {
             renderer,
             audio,
             input,
+            cheats: CheatManager::new(),
             config,
             tick_count: 0,
             is_running: false,
@@ -190,6 +193,26 @@ impl Emulator {
         self.audio.set_volume(config.volume);
         self.cpu.debug = config.debug_logging;
         self.config = config;
+    }
+
+    /// Add an enabled cheat using the next available frontend slot.
+    pub fn add_cheat(&mut self, code: &str) -> Result<u32, CheatParseError> {
+        self.cheats.add_code(code, &self.memory)
+    }
+
+    /// Set, disable, replace, or remove a frontend-managed cheat slot.
+    pub fn set_cheat_slot(
+        &mut self,
+        index: u32,
+        enabled: bool,
+        code: &str,
+    ) -> Result<(), CheatParseError> {
+        self.cheats.set_slot(index, enabled, code, &self.memory)
+    }
+
+    /// Remove all frontend-managed cheat slots.
+    pub fn clear_cheats(&mut self) {
+        self.cheats.clear();
     }
 
     /// Execute one frame (30fps)
@@ -265,6 +288,9 @@ impl Emulator {
                 _ => {}
             }
         }
+
+        // Apply enabled freezes after game logic and before frame outputs.
+        self.cheats.apply(&mut self.memory, &mut self.cpu);
 
         // Update renderer
         if self.renderer.fb_addr != self.api.framebuffer_addr {
@@ -391,17 +417,20 @@ impl Emulator {
             "renderer framebuffer",
         )?;
 
+        self.memory.copy_state_from(&state.memory)?;
+        let stable_memory = std::mem::replace(&mut self.memory, state.memory);
         let mut replacement = Self {
             header: self.header.clone(),
             game_path: self.game_path.clone(),
             boot_code: Arc::clone(&self.boot_code),
             cpu: state.cpu,
-            memory: state.memory,
+            memory: stable_memory,
             function_table: FunctionTable::new(),
             api: state.api,
             renderer: state.renderer,
             audio: state.audio,
             input: state.input,
+            cheats: self.cheats.clone(),
             config: self.config.clone(),
             tick_count: state.tick_count,
             is_running: state.is_running,
@@ -435,7 +464,7 @@ impl Emulator {
         let config = self.config.clone();
         let input = self.input.clone();
 
-        let replacement = Self::from_loaded_game(
+        let mut replacement = Self::from_loaded_game(
             self.game_path.clone(),
             self.header.clone(),
             Arc::clone(&self.boot_code),
@@ -443,6 +472,9 @@ impl Emulator {
             input,
         )
         .context("Failed to rebuild emulator state")?;
+        self.memory.copy_state_from(&replacement.memory)?;
+        std::mem::swap(&mut self.memory, &mut replacement.memory);
+        replacement.cheats = self.cheats.clone();
         *self = replacement;
         log::info!("Emulator reset");
         Ok(())
@@ -556,6 +588,10 @@ mod tests {
     fn reset_rebuilds_runtime_state_and_preserves_configuration() {
         let mut emu = test_emulator(37);
         let initial_trampoline = emu.memory.read_u32(FUNC_TABLE_BASE).unwrap();
+        let ram_pointer = emu.memory.system_ram_mut().unwrap().as_mut_ptr();
+        let vram_pointer = emu.memory.video_ram_mut().unwrap().as_mut_ptr();
+        let peripheral_pointer = emu.memory.peripheral_memory_mut().unwrap().as_mut_ptr();
+        emu.set_cheat_slot(4, true, "mem8:0x1000=99").unwrap();
 
         emu.set_buttons(1 << BUTTON_O);
         emu.set_config(CoreConfig {
@@ -634,8 +670,21 @@ mod tests {
         assert_eq!(emu.audio.get_volume(), 37);
         assert!(emu.audio.get_buffer().is_empty());
         assert_eq!(emu.input.get_buttons(), 0);
+        assert_eq!(emu.cheats.get_slot(4).unwrap().code, "mem8:0x1000=99");
         assert_eq!(emu.config.volume, 37);
         assert!(emu.config.debug_logging);
+        assert_eq!(
+            emu.memory.system_ram_mut().unwrap().as_mut_ptr(),
+            ram_pointer
+        );
+        assert_eq!(
+            emu.memory.video_ram_mut().unwrap().as_mut_ptr(),
+            vram_pointer
+        );
+        assert_eq!(
+            emu.memory.peripheral_memory_mut().unwrap().as_mut_ptr(),
+            peripheral_pointer
+        );
     }
 
     #[test]
@@ -819,6 +868,55 @@ mod tests {
         different.cpu.regs.r4 = 0x8765_4321;
         assert!(different.deserialize(&state).is_err());
         assert_eq!(different.cpu.regs.r4, 0x8765_4321);
+    }
+
+    #[test]
+    fn save_state_keeps_memory_pointers_and_current_cheat_configuration() {
+        let mut emu = test_emulator(100);
+        let address = RAM_BASE + 0x2000;
+        emu.memory.write_u32(address, 7).unwrap();
+        emu.set_cheat_slot(0, true, "mem32:0x00002000=11").unwrap();
+        let mut state = vec![0u8; emu.serialize_size()];
+        emu.serialize(&mut state).unwrap();
+
+        emu.set_cheat_slot(0, true, "mem32:0x00002000=22").unwrap();
+        emu.memory.write_u32(address, 99).unwrap();
+        let ram_pointer = emu.memory.system_ram_mut().unwrap().as_mut_ptr();
+        let vram_pointer = emu.memory.video_ram_mut().unwrap().as_mut_ptr();
+        let peripheral_pointer = emu.memory.peripheral_memory_mut().unwrap().as_mut_ptr();
+
+        emu.deserialize(&state).unwrap();
+
+        assert_eq!(emu.memory.read_u32(address).unwrap(), 7);
+        assert_eq!(emu.cheats.get_slot(0).unwrap().code, "mem32:0x00002000=22");
+        assert_eq!(
+            emu.memory.system_ram_mut().unwrap().as_mut_ptr(),
+            ram_pointer
+        );
+        assert_eq!(
+            emu.memory.video_ram_mut().unwrap().as_mut_ptr(),
+            vram_pointer
+        );
+        assert_eq!(
+            emu.memory.peripheral_memory_mut().unwrap().as_mut_ptr(),
+            peripheral_pointer
+        );
+
+        emu.cheats.apply(&mut emu.memory, &mut emu.cpu);
+        assert_eq!(emu.memory.read_u32(address).unwrap(), 22);
+    }
+
+    #[test]
+    fn enabled_cheats_are_applied_at_the_end_of_a_running_frame() {
+        let mut emu = test_emulator(100);
+        emu.set_cheat_slot(0, true, "mem8:0x1000=99").unwrap();
+        emu.set_cheat_slot(1, true, "reg:r4=0x12345678").unwrap();
+        emu.start();
+
+        emu.tick();
+
+        assert_eq!(emu.memory.read_u8(RAM_BASE + 0x1000).unwrap(), 99);
+        assert_eq!(emu.cpu.regs.r4, 0x1234_5678);
     }
 
     #[test]

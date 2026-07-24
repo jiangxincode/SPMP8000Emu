@@ -50,9 +50,56 @@ frontend can display the core metadata and supported features.
 - Full runtime reset from the cached game boot image
 - Versioned and checksummed save states for the complete emulator runtime
 - Live core options for audio, button layout, and CPU diagnostics
+- System RAM, video RAM, and complete SPMP memory descriptors
+- Emulator-handled memory and ARM-register cheats
 - `.bin` content loading (NGame1.0 format)
 
-Cheats are not supported yet.
+## Memory access
+
+The core exposes the standard libretro memory IDs:
+
+| Memory ID | Region | Address range | Size |
+|---|---|---|---:|
+| `RETRO_MEMORY_SYSTEM_RAM` (`2`) | Main RAM | `0x00000000`–`0x00FFFFFF` | 16 MiB |
+| `RETRO_MEMORY_VIDEO_RAM` (`3`) | Video RAM | `0x01000000`–`0x01FFFFFF` | 16 MiB |
+
+It also registers the RAM, VRAM, and peripheral regions as `SPMP` memory
+descriptors using their absolute emulated addresses. This lets compatible
+RetroArch tools inspect and modify the real SPMP address space. The underlying
+buffers keep stable host addresses across Reset and Load State.
+
+## Cheats
+
+SPMP8000Emu uses RetroArch's **Emulator** cheat handler. Enter the same rules
+accepted by the standalone `--cheat` option:
+
+```text
+mem8:0x00123456=99
+mem16:0x00124000=999
+mem32:0x01001000=0x12345678
+reg:r0=0x1234
+```
+
+To configure a rule:
+
+1. Load a game and open **Quick Menu > Cheats**.
+2. Add or select a cheat entry.
+3. Set **Handler** to **Emulator**.
+4. Enter one rule in **Code** and enable the entry.
+5. Select **Apply Changes**.
+
+Each RetroArch cheat index is an independent slot. Applying an empty code
+removes that slot, disabling a slot retains its parsed rule without applying
+it, and **Reset Cheats** clears all slots. Memory values accept decimal or
+`0x`-prefixed hexadecimal numbers. `mem16` and `mem32` require natural
+alignment, values must fit their width, and only the mapped 16 MiB RAM and
+16 MiB VRAM ranges are accepted. Register targets are `r0`–`r15`, `sp`, `lr`,
+`pc`, and `cpsr`.
+
+Rules run once per frame after CPU execution and before video/audio output.
+They are frontend configuration, not part of a Save State. Reset and Load
+State therefore retain the current slots; after loading a state, enabled
+freezes apply again on the next running frame.
 
 ## Live Core Options
 
