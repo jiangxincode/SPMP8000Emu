@@ -91,7 +91,7 @@ pub extern "C" fn retro_get_system_info(info: *mut retro_system_info) {
     unsafe {
         (*info) = retro_system_info {
             library_name: c"SPMP8000Emu".as_ptr(),
-            library_version: c"0.1.0".as_ptr(),
+            library_version: c"1.0.0".as_ptr(),
             valid_extensions: c"bin".as_ptr(),
             need_fullpath: true,
             block_extract: false,
