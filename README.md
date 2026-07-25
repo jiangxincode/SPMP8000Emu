@@ -137,16 +137,15 @@ crates/
 
 Handheld gaming devices based on SunPlus SPMP8XXX chips that can run NGame1.0 games:
 
-| Chip | Manufacturer | Device | Region | Links |
-|------|--------------|--------|--------|-------|
-| SPMP8000 | 驰为 (CHUWI) | PHG | China | [Video](https://www.bilibili.com/video/BV1Jbjo6BEwc) |
-| SPMP8010A | 金星 (JXD) | JXD1000 | China | [Official](https://jxd.hk/products.asp?id=554&selectclassid=009002001) · [Wiki](https://jxd.fandom.com/wiki/Jxd1000) · [Video](https://www.bilibili.com/video/BV1kR57zzEGQ) |
-| SPMP8010A | 金星 (JXD) | JXD2000 | China | [Official](https://jxd.hk/products.asp?id=555&selectclassid=009002001) |
-| SPMP8000? | 金星 (JXD) | JXD980 | China | [Baidu](https://baike.baidu.com/item/%E9%87%91%E6%98%9FJXD980/8365407) |
-| SPMP8000? | 金星 (JXD) | JXD300 | China | [Baidu](https://baike.baidu.com/item/%E9%87%91%E6%98%9FJXD300/312367) · [Video](https://www.youtube.com/watch?v=-J2uHjPQ2VQ) |
-| SPMP8000? | 金星 (JXD) | JXD206 | China | [Blog](https://surajbkmshah.wordpress.com/2010/05/05/frm-pro-v3-3-for-pmp8000-flashfile-procedure-here/) |
-| SPMP8000 | Letcool | N350JP | China | [Handhelds Arena](https://handheldsarena.com/devices/letcool/n350jp/) |
-| SPMP8010 | Ritmix | RZX-40 | Russia | [Official](http://old.ritmixrussia.ru/products/rzx-40) |
+| Chip | Manufacturer | Device | Image | Region | Links |
+|------|--------------|--------|-------|--------|-------|
+| SPMP8010A | 金星 (JXD) | JXD1000 | <img src="docs/devices/JXD1000.jpg" width="120"> | China | [Official](https://jxd.hk/products.asp?id=554&selectclassid=009002001) · [Wiki](https://jxd.fandom.com/wiki/Jxd1000) · [Video](https://www.bilibili.com/video/BV1kR57zzEGQ) |
+| SPMP8010A | 金星 (JXD) | JXD2000 | <img src="docs/devices/JXD2000.jpg" width="120"> | China | [Official](https://jxd.hk/products.asp?id=555&selectclassid=009002001) |
+| SPMP8000? | 金星 (JXD) | JXD980 | <img src="docs/devices/JXD980.jpg" width="120"> | China | [Baidu](https://baike.baidu.com/item/%E9%87%91%E6%98%9FJXD980/8365407) |
+| SPMP8000? | 金星 (JXD) | JXD300 | <img src="docs/devices/JXD300.jpg" width="120"> | China | [Baidu](https://baike.baidu.com/item/%E9%87%91%E6%98%9FJXD300/312367) · [Video](https://www.youtube.com/watch?v=-J2uHjPQ2VQ) |
+| SPMP8000? | 金星 (JXD) | JXD206 | <img src="docs/devices/JXD206.jpg" width="120"> | China | [Blog](https://surajbkmshah.wordpress.com/2010/05/05/frm-pro-v3-3-for-pmp8000-flashfile-procedure-here/) |
+| SPMP8000 | Letcool | N350JP | <img src="docs/devices/N350JP.jpg" width="120"> | China | [Handhelds Arena](https://handheldsarena.com/devices/letcool/n350jp/) |
+| SPMP8010 | Ritmix | RZX-40 | <img src="docs/devices/RZX-40.jpg" width="120"> | Russia | [Official](http://old.ritmixrussia.ru/products/rzx-40) |
 
 > **Note**: Devices marked with "?" have unconfirmed chip models.
 
