@@ -72,7 +72,7 @@ Pushing the tag triggers `.github/workflows/release.yml`, which:
 
 1. Go to [Releases](https://github.com/jiangxincode/SPMP8000Emu/releases)
 2. Find the draft release created by CI
-3. Review the auto-generated changelog — edit if needed
+3. Review the auto-generated changelog — edit if needed (refer to previous release changelogs for style)
 4. Verify all expected artifacts are attached:
    - `spmp8000-emu-linux-x86_64.tar.gz`
    - `spmp8000-emu-macos-x86_64.tar.gz`
