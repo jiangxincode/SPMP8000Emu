@@ -17,7 +17,7 @@ fn game_directory() -> Option<PathBuf> {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
-        .map(|root| root.join("tmp").join("GameCollection"))
+        .map(|root| root.join("tmp").join("spmp8000_game"))
         .filter(|path| path.is_dir())
 }
 

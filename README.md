@@ -178,7 +178,7 @@ frame. It needs the (non-distributed) game assets, so it is `#[ignore]`d by
 default and only runs on demand:
 
 ```bash
-# Uses <repo>/tmp/GameCollection by default, or set SPMP8000_GAME_DIR
+# Uses <repo>/tmp/spmp8000_game by default, or set SPMP8000_GAME_DIR
 cargo test -p spmp8000emu-core --test screenshot -- --ignored --nocapture
 ```
 

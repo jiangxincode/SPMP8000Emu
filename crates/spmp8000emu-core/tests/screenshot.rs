@@ -10,7 +10,7 @@
 // cargo test -p spmp8000emu-core --test screenshot -- --ignored --nocapture
 // ```
 //
-// By default it looks for games in `<repo>/tmp/GameCollection`. Override the
+// By default it looks for games in `<repo>/tmp/spmp8000_game`. Override the
 // location with the `SPMP8000_GAME_DIR` environment variable.
 
 use std::path::{Path, PathBuf};
@@ -26,13 +26,13 @@ fn game_dir() -> Option<PathBuf> {
         let p = PathBuf::from(dir);
         return p.is_dir().then_some(p);
     }
-    // Default: <workspace_root>/tmp/GameCollection. CARGO_MANIFEST_DIR points at the
+    // Default: <workspace_root>/tmp/spmp8000_game. CARGO_MANIFEST_DIR points at the
     // core crate (crates/spmp8000emu-core), so go up two levels.
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let candidate = manifest
         .parent()
         .and_then(|p| p.parent())
-        .map(|root| root.join("tmp").join("GameCollection"));
+        .map(|root| root.join("tmp").join("spmp8000_game"));
     candidate.filter(|p| p.is_dir())
 }
 
@@ -94,7 +94,7 @@ fn smoke_all_games() {
         None => {
             eprintln!(
                 "skipping: no game directory found \
-                 (set SPMP8000_GAME_DIR or place games in tmp/GameCollection)"
+                 (set SPMP8000_GAME_DIR or place games in tmp/spmp8000_game)"
             );
             return;
         }
