@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-    Batch-generate screenshots for all .bin games in tmp/GameCollection.
+    Batch-generate screenshots for all .bin games in tmp/spmp8000_game.
 
 .DESCRIPTION
     Runs the spmp8000-emu binary in screenshot mode (--screenshot) for every
-    .bin file found under tmp/GameCollection (recursively).  Output PNGs are
+    .bin file found under tmp/spmp8000_game (recursively).  Output PNGs are
     saved to docs/images/, named after the game file (without extension). When
     no binary is supplied, the latest release binary is built before capture.
 
@@ -27,7 +27,7 @@ $ErrorActionPreference = "Stop"
 $framesSpecified = $PSBoundParameters.ContainsKey("Frames")
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$gameDir  = Join-Path $repoRoot "tmp\GameCollection"
+$gameDir  = Join-Path $repoRoot "tmp\spmp8000_game"
 $outDir   = Join-Path $repoRoot "docs\images"
 
 if (-not (Test-Path $gameDir)) {
@@ -44,7 +44,7 @@ if (-not $Binary) {
     Write-Host "Building the latest release binary..." -ForegroundColor Yellow
     try {
         Push-Location $repoRoot
-        cargo build --release -p spmp8000-emu
+        cargo build --release -p spmp8000emu
         if ($LASTEXITCODE -ne 0) {
             throw "Release build failed with exit code $LASTEXITCODE."
         }
