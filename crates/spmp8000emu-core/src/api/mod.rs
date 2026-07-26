@@ -296,9 +296,8 @@ impl NGameApi {
 
     fn ecos_host_path(&self, pathname: &str) -> std::path::PathBuf {
         let normalized = pathname.replace('\\', "/");
-        let without_device = normalized
-            .strip_prefix("/fat20a2/hda2")
-            .or_else(|| normalized.strip_prefix("/hda2"))
+        let without_device = Self::strip_ascii_case_prefix(&normalized, "/fat20a2/hda2")
+            .or_else(|| Self::strip_ascii_case_prefix(&normalized, "/hda2"))
             .unwrap_or(&normalized);
         let relative = without_device.trim_start_matches('/');
         let game_dir = std::path::PathBuf::from(&self.game_dir);
@@ -308,12 +307,11 @@ impl NGameApi {
             .unwrap_or_default();
 
         let base = if without_device.starts_with('/') {
-            if let Some(rest) = relative.strip_prefix("GAME/") {
-                if let Some(rest) = rest
-                    .strip_prefix(game_name)
-                    .and_then(|s| s.strip_prefix('/'))
+            if let Some(rest) = Self::strip_ascii_case_prefix(relative, "GAME/") {
+                if let Some(game_relative) = Self::strip_ascii_case_prefix(rest, game_name)
+                    .and_then(|value| value.strip_prefix('/'))
                 {
-                    game_dir.join(rest)
+                    game_dir.join(game_relative)
                 } else if rest.eq_ignore_ascii_case(game_name) || rest.is_empty() {
                     game_dir.clone()
                 } else {
@@ -384,6 +382,13 @@ impl NGameApi {
         direct
     }
 
+    fn strip_ascii_case_prefix<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+        let candidate = value.get(..prefix.len())?;
+        candidate
+            .eq_ignore_ascii_case(prefix)
+            .then(|| &value[prefix.len()..])
+    }
+
     fn default_keymap_data(path: &std::path::Path) -> Option<Vec<u8>> {
         const MAPPINGS: [u32; 36] = [
             0x0001, 0x0002, 0x0004, 0x0008, 0x0010, 0x0020, 0x0040, 0x0080, 0x0100, 0x0200, 0x0400,
@@ -409,6 +414,22 @@ impl NGameApi {
         Some(data)
     }
 
+    fn default_settings_data(path: &std::path::Path) -> Option<Vec<u8>> {
+        if !path
+            .file_name()?
+            .to_str()?
+            .eq_ignore_ascii_case("settings.cfg")
+        {
+            return None;
+        }
+        let game_name = path.parent()?.file_name()?.to_str()?;
+        (!game_name.is_empty()).then(|| game_name.as_bytes().to_vec())
+    }
+
+    fn default_virtual_file_data(path: &std::path::Path) -> Option<Vec<u8>> {
+        Self::default_keymap_data(path).or_else(|| Self::default_settings_data(path))
+    }
+
     fn normalize_ecos_dir(path: &str) -> String {
         let mut parts = Vec::new();
         let normalized = path.replace('\\', "/");
@@ -432,7 +453,7 @@ impl NGameApi {
         log::debug!("eCos open: {} -> {}", pathname, host_path.display());
 
         let default_size = (!host_path.exists())
-            .then(|| Self::default_keymap_data(&host_path))
+            .then(|| Self::default_virtual_file_data(&host_path))
             .flatten()
             .map(|data| data.len() as u64);
         if host_path.exists() || default_size.is_some() || (flags & (1 << 3)) != 0 {
@@ -459,7 +480,7 @@ impl NGameApi {
         if let Some(file) = self.open_files.get_mut(&fd) {
             let host_path = std::path::Path::new(&file.host_path);
             if !host_path.exists() {
-                if let Some(data) = Self::default_keymap_data(host_path) {
+                if let Some(data) = Self::default_virtual_file_data(host_path) {
                     let start = file.position.min(data.len() as u64) as usize;
                     let end = start.saturating_add(count as usize).min(data.len());
                     let bytes = &data[start..end];
@@ -572,7 +593,7 @@ impl NGameApi {
         if let Ok(meta) = std::fs::metadata(&host_path) {
             Self::write_ecos_stat(memory, stat_addr, meta.len(), meta.is_dir());
             self.return_success(memory);
-        } else if let Some(data) = Self::default_keymap_data(&host_path) {
+        } else if let Some(data) = Self::default_virtual_file_data(&host_path) {
             Self::write_ecos_stat(memory, stat_addr, data.len() as u64, false);
             self.return_success(memory);
         } else {
@@ -614,6 +635,7 @@ impl NGameApi {
         let path_addr = memory.get_register(crate::memory::REG_R0);
         let pathname = memory.read_string(path_addr, 256).unwrap_or_default();
         let host_path = self.ecos_host_path(&pathname);
+        log::debug!("eCos opendir: {} -> {}", pathname, host_path.display());
 
         let Ok(read_dir) = std::fs::read_dir(&host_path) else {
             memory.set_register(crate::memory::REG_R0, 0);
@@ -627,6 +649,7 @@ impl NGameApi {
         self.add_virtual_dir_entries(&pathname, &mut entries);
         entries.sort_unstable_by_key(|name| name.to_ascii_lowercase());
         entries.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+        log::debug!("eCos opendir entries: {:?}", entries);
 
         let handle = self.next_dir_handle;
         self.next_dir_handle += 0x400;
@@ -684,6 +707,7 @@ impl NGameApi {
 
         let name = dir.entries[dir.position].clone();
         dir.position += 1;
+        log::debug!("eCos readdir: {}", name);
         Self::write_ecos_dirent(memory, entry_addr, &name);
         let _ = memory.write_u32(result_addr, entry_addr);
         self.return_success(memory);
@@ -810,6 +834,7 @@ impl NGameApi {
             0x6C => self.ecos_readdir_r(memory),
             0x6D => self.ecos_readdir(memory),
             0x6F => self.fake_firmware_dummy(memory),
+            0x70 => self.fake_firmware_cyg_current_time(memory),
 
             0x1001..=0x2000 => {
                 log::debug!(
@@ -826,6 +851,11 @@ impl NGameApi {
                 log::warn!("Unhandled SVC call: 0x{:02X}", svc_num);
             }
         }
+    }
+
+    fn fake_firmware_cyg_current_time(&self, memory: &mut Memory) {
+        memory.set_register(crate::memory::REG_R0, self.emulated_time_ms() / 10);
+        memory.set_register(crate::memory::REG_R1, 0);
     }
 }
 
@@ -860,6 +890,14 @@ mod tests {
     }
 
     #[test]
+    fn default_settings_select_the_current_game_directory() {
+        let settings =
+            NGameApi::default_settings_data(Path::new("GAME/spmp8k-doom/settings.cfg")).unwrap();
+        assert_eq!(settings, b"spmp8k-doom");
+        assert!(NGameApi::default_settings_data(Path::new("GAME/spmp8k-doom/other.cfg")).is_none());
+    }
+
+    #[test]
     fn heretic_wad_alias_prefers_the_local_game_asset() {
         let temp = tempfile::tempdir().unwrap();
         let game_dir = temp.path().join("spmp8k-Heretic");
@@ -871,5 +909,21 @@ mod tests {
         api.set_game_dir(&game_dir.to_string_lossy());
 
         assert_eq!(api.ecos_host_path("heretic.wad"), local_wad);
+    }
+
+    #[test]
+    fn ecos_game_paths_are_ascii_case_insensitive() {
+        let temp = tempfile::tempdir().unwrap();
+        let game_dir = temp.path().join("spmp8k-Heretic");
+        std::fs::create_dir(&game_dir).unwrap();
+
+        let mut api = NGameApi::new();
+        api.set_game_dir(&game_dir.to_string_lossy());
+
+        assert_eq!(api.ecos_host_path("/game/spmp8k-heretic"), game_dir);
+        assert_eq!(
+            api.ecos_host_path("/FAT20A2/HDA2/GAME/SPMP8K-HERETIC/heretic1.wad"),
+            game_dir.join("heretic1.wad")
+        );
     }
 }

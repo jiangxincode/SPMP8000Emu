@@ -30,12 +30,16 @@ impl NGameApi {
         let pixels = memory.read_u32(params_addr).unwrap_or(0);
         let width = valid_dimension(memory.read_u32(params_addr + 4).unwrap_or(0), 320);
         let height = valid_dimension(memory.read_u32(params_addr + 8).unwrap_or(0), 240);
+        let has_palette = memory.read_u32(params_addr + 12).unwrap_or(0) != 0;
+        let palette = memory.read_u32(params_addr + 16).unwrap_or(0);
 
         log::info!(
-            "emuIfGraphInit: {}x{} framebuffer at 0x{:08X}",
+            "emuIfGraphInit: {}x{} framebuffer at 0x{:08X}, palette at 0x{:08X} ({})",
             width,
             height,
-            pixels
+            pixels,
+            palette,
+            if has_palette { "indexed" } else { "direct" }
         );
 
         if pixels != 0 {

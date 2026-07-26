@@ -846,7 +846,7 @@ impl ArmCpu {
         if link {
             self.regs.lr = self.regs.pc;
         }
-        if target == 0xFFE0_FFE0 {
+        if matches!(target, 0xFFE0_FFE0 | u32::MAX) {
             self.regs.r0 = 0;
             self.regs.pc = self.regs.lr;
             return Ok(CpuResult::Continue);
@@ -1017,6 +1017,23 @@ mod tests {
 
         assert_eq!(cpu.regs.pc, 0x2000);
         assert_eq!(cpu.regs.lr, 0x1004);
+    }
+
+    #[test]
+    fn test_blx_ignores_unset_callback_sentinel() {
+        let mut cpu = ArmCpu::new().unwrap();
+        let mut memory = Memory::new();
+
+        cpu.regs.pc = 0x1004;
+        cpu.regs.r0 = 7;
+        cpu.regs.r3 = u32::MAX;
+        cpu.execute_arm_instruction(0xE12FFF33, &mut memory)
+            .unwrap();
+
+        assert_eq!(cpu.regs.pc, 0x1004);
+        assert_eq!(cpu.regs.lr, 0x1004);
+        assert_eq!(cpu.regs.r0, 0);
+        assert!(!cpu.thumb_mode);
     }
 
     #[test]

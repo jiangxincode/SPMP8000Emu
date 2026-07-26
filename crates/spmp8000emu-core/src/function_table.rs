@@ -35,7 +35,17 @@ const FAKE_FW_ECOS_READDIR: u32 = FAKE_FW_BASE + 0x2C0;
 const FAKE_FW_NATIVE_FS_OPEN: u32 = FAKE_FW_BASE + 0x300;
 const FAKE_FW_NATIVE_FS_READ: u32 = FAKE_FW_BASE + 0x320;
 const FAKE_FW_NATIVE_FS_WRITE: u32 = FAKE_FW_BASE + 0x340;
+const FAKE_FW_ECOS_FSYNC: u32 = FAKE_FW_BASE + 0x360;
+const FAKE_FW_ECOS_UNLINK: u32 = FAKE_FW_BASE + 0x380;
+const FAKE_FW_ECOS_MKDIR: u32 = FAKE_FW_BASE + 0x3A0;
+const FAKE_FW_ECOS_RMDIR: u32 = FAKE_FW_BASE + 0x3C0;
+const FAKE_FW_PROBE_END: u32 = FAKE_FW_BASE + 0x3E0;
+const FAKE_FW_INIT_FUN_TABLE: u32 = FAKE_FW_BASE + 0x400;
 const FAKE_FW_EMUIF_BASE: u32 = FAKE_FW_BASE + 0x500;
+const FAKE_FW_CYG_CURRENT_TIME: u32 = FAKE_FW_BASE + 0x780;
+const FAKE_FW_GAME_BUFFER_PROBE: u32 = FAKE_FW_BASE + 0x7C0;
+const FAKE_FW_SCAN_PROBES: u32 = FAKE_FW_BASE + 0x800;
+const FAKE_FW_SCAN_STRINGS: u32 = FAKE_FW_BASE + 0xD00;
 
 pub fn fake_firmware_direct_svc(pc: u32) -> Option<u32> {
     let offset = pc.checked_sub(FAKE_FW_G_ST_EMU_FUNCS)?;
@@ -341,6 +351,15 @@ impl FunctionTable {
             0x21,
             &[FAKE_FW_ECOS_WRITE],
         )?;
+        Self::write_fs_probe_stub(memory, FAKE_FW_ECOS_FSYNC, 0x6E, 0x14)?;
+        Self::write_fs_probe_stub(memory, FAKE_FW_ECOS_UNLINK, 0x6E, 0x18)?;
+        Self::write_fs_probe_stub(memory, FAKE_FW_ECOS_MKDIR, 0x6E, 0x1C)?;
+        Self::write_fs_probe_stub(memory, FAKE_FW_ECOS_RMDIR, 0x6E, 0x20)?;
+        memory.write_u32(FAKE_FW_PROBE_END, 0xE92D4000)?;
+        Self::write_function_table_init_stub(memory)?;
+        Self::write_ecos_stub(memory, FAKE_FW_CYG_CURRENT_TIME, 0x70, &[])?;
+        let diag_ptr = memory.read_u32(FUNC_TABLE_BASE + NativeFuncIndex::DiagPrintf as u32)?;
+        Self::write_firmware_scan_probes(memory, diag_ptr)?;
 
         let emuif_funcs: &[(u32, u32)] = &[
             (0x00, 0x30),
@@ -376,6 +395,8 @@ impl FunctionTable {
         for (offset, svc_num) in emuif_funcs {
             let wrapper_addr = FAKE_FW_EMUIF_BASE + offset * 4;
             let bl_targets: &[u32] = match *offset {
+                0x28 => &[FAKE_FW_DUMMY],
+                0x2C => &[FAKE_FW_CYG_CURRENT_TIME],
                 0x38 => &[FAKE_FW_ECOS_FSTAT],
                 0x4C => &[FAKE_FW_ECOS_LSEEK],
                 0x50 => &[FAKE_FW_ECOS_CLOSE],
@@ -385,7 +406,6 @@ impl FunctionTable {
             memory.write_u32(FAKE_FW_G_ST_EMU_FUNCS + offset, wrapper_addr)?;
         }
 
-        let diag_ptr = memory.read_u32(FUNC_TABLE_BASE + NativeFuncIndex::DiagPrintf as u32)?;
         for index in 0..28u32 {
             let entry_addr = FAKE_FW_G_ST_EMU_FUNCS + index * 4;
             if memory.read_u32(entry_addr)? == 0 {
@@ -393,6 +413,100 @@ impl FunctionTable {
             }
         }
         memory.write_u32(FAKE_FW_G_ST_EMU_FUNCS + 28 * 4, diag_ptr)?;
+        Ok(())
+    }
+
+    fn write_firmware_scan_probes(memory: &mut Memory, diag_ptr: u32) -> Result<()> {
+        let dummy = FAKE_FW_DUMMY;
+        let parser_destroy = FAKE_FW_SCAN_PROBES + 7 * 0x40;
+        let parser_init = FAKE_FW_SCAN_PROBES + 12 * 0x40;
+        let game_buffer_string = FAKE_FW_SCAN_STRINGS + 0x200;
+        let game_buffer_size = FAKE_FW_GAME_BUFFER_PROBE + 0x30;
+        let mut string_addr = FAKE_FW_SCAN_STRINGS;
+
+        memory.write_u32(FAKE_FW_GAME_BUFFER_PROBE, 0xE92D4000)?;
+        memory.write_u32(FAKE_FW_GAME_BUFFER_PROBE + 4, 0xE59F1014)?;
+        memory.write_u32(FAKE_FW_GAME_BUFFER_PROBE + 8, 0xE1A00000)?;
+        memory.write_u32(FAKE_FW_GAME_BUFFER_PROBE + 12, 0xE59F0010)?;
+        Self::write_bl(memory, FAKE_FW_GAME_BUFFER_PROBE + 16, diag_ptr)?;
+        memory.write_u32(FAKE_FW_GAME_BUFFER_PROBE + 0x20, game_buffer_size)?;
+        memory.write_u32(FAKE_FW_GAME_BUFFER_PROBE + 0x24, game_buffer_string)?;
+        memory.write_u32(game_buffer_size, 0x0160_0000)?;
+        memory.write_block(
+            game_buffer_string,
+            b"emuStartupFunc(): gameMaxBufferSize = \0",
+        )?;
+
+        let probes: &[(u32, &str, &[u32])] = &[
+            (0x000, "Demo GUI", &[dummy, dummy]),
+            (0x040, "%s%s%04d%s", &[dummy]),
+            (0x080, "delete handle thread", &[dummy, dummy]),
+            (0x0C0, "[win_main] ", &[dummy, dummy]),
+            (0x100, "vdoBRT_suspend", &[dummy, dummy]),
+            (0x140, "[setFrameBufferMgr]", &[dummy, dummy]),
+            (0x180, "Enter Parser_free", &[dummy, dummy, parser_destroy]),
+            (0x200, "clkMgr_init", &[dummy]),
+            (0x240, "---------------back trace", &[]),
+            (0x280, "+Cx1620_init: cxFlags=", &[dummy, dummy]),
+            (0x2C0, "ParserInitEx: new file", &[dummy, parser_init]),
+            (0x340, "readBlksWithLock_SD", &[]),
+            (0x380, "writeBlksWithLock_SD", &[]),
+            (
+                0x3C0,
+                " MSDC_NOTIFY, wait.....",
+                &[diag_ptr, diag_ptr, dummy],
+            ),
+            (0x400, " VBUS high, USBIN", &[diag_ptr, diag_ptr, dummy]),
+        ];
+
+        for (offset, needle, branches) in probes {
+            string_addr = Self::write_string_probe(
+                memory,
+                FAKE_FW_SCAN_PROBES + offset,
+                string_addr,
+                needle,
+                branches,
+            )?;
+        }
+
+        Self::write_branch_probe(memory, parser_destroy, &[dummy])?;
+        Self::write_branch_probe(memory, parser_init, &[dummy, dummy, dummy])?;
+        memory.write_u32(FAKE_FW_SCAN_PROBES + 0x440, 0xE92D4000)?;
+        Ok(())
+    }
+
+    fn write_string_probe(
+        memory: &mut Memory,
+        code_addr: u32,
+        string_addr: u32,
+        needle: &str,
+        bl_targets: &[u32],
+    ) -> Result<u32> {
+        memory.write_u32(code_addr, 0xE92D4000)?;
+        memory.write_u32(code_addr + 4, 0xE59F0020)?;
+        for (index, target) in bl_targets.iter().enumerate() {
+            Self::write_bl(memory, code_addr + 8 + index as u32 * 4, *target)?;
+        }
+        memory.write_u32(code_addr + 0x2C, string_addr)?;
+        memory.write_block(string_addr, needle.as_bytes())?;
+        memory.write_u8(string_addr + needle.len() as u32, 0)?;
+        Ok((string_addr + needle.len() as u32 + 4) & !3)
+    }
+
+    fn write_branch_probe(memory: &mut Memory, code_addr: u32, bl_targets: &[u32]) -> Result<()> {
+        memory.write_u32(code_addr, 0xE92D4000)?;
+        for (index, target) in bl_targets.iter().enumerate() {
+            Self::write_bl(memory, code_addr + 4 + index as u32 * 4, *target)?;
+        }
+        Ok(())
+    }
+
+    fn write_function_table_init_stub(memory: &mut Memory) -> Result<()> {
+        memory.write_u32(FAKE_FW_INIT_FUN_TABLE, 0xE92D4000)?;
+        memory.write_u32(FAKE_FW_INIT_FUN_TABLE + 4, 0xE59F0004)?;
+        memory.write_u32(FAKE_FW_INIT_FUN_TABLE + 8, 0xE3A01056)?;
+        memory.write_u32(FAKE_FW_INIT_FUN_TABLE + 12, 0xE12FFF1E)?;
+        memory.write_u32(FAKE_FW_INIT_FUN_TABLE + 16, FUNC_TABLE_BASE)?;
         Ok(())
     }
 
@@ -533,6 +647,98 @@ mod tests {
         assert_eq!(val & 0xFF000000, 0xEF000000); // SVC instruction prefix
         assert_eq!(val & 0x00FFFFFF, 0x01); // SVC #1
         assert_eq!(memory.read_u32(ptr + 4).unwrap(), 0xE12FFF1E); // BX LR
+    }
+
+    #[test]
+    fn fake_firmware_exposes_all_filesystem_probe_methods() {
+        let mut memory = Memory::new();
+        memory.init_default().unwrap();
+        FunctionTable::new().setup_in_memory(&mut memory).unwrap();
+
+        for (address, offset) in [
+            (FAKE_FW_ECOS_FSYNC, 0x14),
+            (FAKE_FW_ECOS_UNLINK, 0x18),
+            (FAKE_FW_ECOS_MKDIR, 0x1C),
+            (FAKE_FW_ECOS_RMDIR, 0x20),
+            (FAKE_FW_ECOS_CHDIR, 0x30),
+            (FAKE_FW_ECOS_STAT, 0x34),
+            (FAKE_FW_ECOS_GETCWD, 0x38),
+        ] {
+            assert_eq!(memory.read_u32(address).unwrap() & 0xFFFF_0000, 0xE92D_0000);
+            assert_eq!(memory.read_u32(address + 16).unwrap(), 0xE590_F000 | offset);
+        }
+        assert_eq!(
+            memory.read_u32(FAKE_FW_PROBE_END).unwrap() & 0xFFFF_0000,
+            0xE92D_0000
+        );
+    }
+
+    #[test]
+    fn fake_firmware_exposes_function_table_initialization() {
+        let mut memory = Memory::new();
+        memory.init_default().unwrap();
+
+        FunctionTable::new().setup_in_memory(&mut memory).unwrap();
+
+        assert_eq!(
+            memory.read_u32(FAKE_FW_INIT_FUN_TABLE + 4).unwrap(),
+            0xE59F0004
+        );
+        assert_eq!(
+            memory.read_u32(FAKE_FW_INIT_FUN_TABLE + 8).unwrap(),
+            0xE3A01056
+        );
+        assert_eq!(
+            memory.read_u32(FAKE_FW_INIT_FUN_TABLE + 16).unwrap(),
+            FUNC_TABLE_BASE
+        );
+    }
+
+    #[test]
+    fn fake_firmware_exposes_cyg_current_time_target() {
+        let mut memory = Memory::new();
+        memory.init_default().unwrap();
+        FunctionTable::new().setup_in_memory(&mut memory).unwrap();
+
+        let wrapper = memory.read_u32(FAKE_FW_G_ST_EMU_FUNCS + 0x2C).unwrap();
+        let branch_addr = wrapper + 8;
+        let instruction = memory.read_u32(branch_addr).unwrap();
+        let signed_offset = ((instruction << 8) as i32 >> 6) as u32;
+        let target = branch_addr.wrapping_add(8).wrapping_add(signed_offset);
+
+        assert_eq!(instruction & 0xFF00_0000, 0xEB00_0000);
+        assert_eq!(target, FAKE_FW_CYG_CURRENT_TIME);
+        assert_eq!(
+            memory.read_u32(FAKE_FW_CYG_CURRENT_TIME + 4).unwrap(),
+            0xEF00_0070
+        );
+    }
+
+    #[test]
+    fn fake_firmware_exposes_runtime_scan_signatures() {
+        let mut memory = Memory::new();
+        memory.init_default().unwrap();
+        FunctionTable::new().setup_in_memory(&mut memory).unwrap();
+
+        for address in [
+            FAKE_FW_SCAN_PROBES,
+            FAKE_FW_SCAN_PROBES + 6 * 0x40,
+            FAKE_FW_SCAN_PROBES + 10 * 0x40,
+            FAKE_FW_SCAN_PROBES + 16 * 0x40,
+        ] {
+            assert_eq!(memory.read_u32(address).unwrap() & 0xFFFF_0000, 0xE92D_0000);
+        }
+
+        let first_string = memory.read_u32(FAKE_FW_SCAN_PROBES + 0x2C).unwrap();
+        assert_eq!(memory.read_string(first_string, 32).unwrap(), "Demo GUI");
+        assert_eq!(
+            memory.read_u32(FAKE_FW_GAME_BUFFER_PROBE + 4).unwrap(),
+            0xE59F1014
+        );
+        assert_eq!(
+            memory.read_u32(FAKE_FW_GAME_BUFFER_PROBE + 12).unwrap(),
+            0xE59F0010
+        );
     }
 
     #[test]

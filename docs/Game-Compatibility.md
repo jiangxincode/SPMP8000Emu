@@ -67,12 +67,30 @@ games whose useful title screen is visible for a shorter window.
 
 ## Warn Status Details
 
-- **Heretic, Quake, and DOOM (spmp8k):** built-in `keys.map`/`keymap.cfg`
-  defaults now skip the interactive first-run binding flow when no saved map is
-  present. Heretic also resolves `heretic.wad` to its local `heretic1.wad`
-  instead of the unrelated sibling DOOM WAD. Their unattended 300-frame
-  captures are still black, however, and later resource/menu initialization is
-  not yet reliable enough to classify them as passing.
+- **Common SPMP8K port runtime:** built-in `keys.map`/`keymap.cfg` defaults skip
+  the interactive first-run binding flow when no saved map is present. The
+  emulated firmware now exposes the eCos discovery signatures, timer service,
+  game-buffer marker, case-insensitive game paths, and unset callback sentinel
+  used by these community ports. All three ports initialize graphics, sound,
+  and input within the original 300-frame test window instead of stalling in
+  firmware ABI discovery.
+- **DOOM (spmp8k):** a tuned frame-1000 run reads the virtual game selection,
+  enumerates the `spmp8k-doom` directory, opens `doom1.wad`, and renders the
+  bilingual loading screen without crashing. The title and gameplay paths have
+  not yet been verified, so it remains Warn.
+- **Heretic:** a tuned frame-996 run reads the virtual game selection, resolves
+  `heretic.wad` to the bundled `heretic1.wad`, opens the WAD, and renders the
+  bilingual loading screen. It subsequently reaches an unsupported Thumb
+  branch target near frame 997, so it remains Warn.
+- **Quake:** runtime initialization succeeds, and the validation package now
+  includes `id1/pak0.pak`. A scripted Start press exits the port's startup
+  prompt without entering its button-remapping flow. The CPU remains active
+  through a tuned frame-1500 run, but the port has not yet attempted to open
+  `id1`/`pak0.pak` or rendered a usable title screen, so it remains Warn.
+- **Port background:** see the community release threads for
+  [Heretic](https://www.tapatalk.com/groups/handheld/spmp8k-heretic-t420.html),
+  [Quake](https://www.tapatalk.com/groups/handheld/spmp8k-quake-t410-s10.html),
+  and [DOOM](https://www.tapatalk.com/groups/handheld/spmp8k-doom-t411-s10.html).
 
 ## Additional Notes
 
