@@ -1,4 +1,5 @@
 use crate::memory::Memory;
+use crate::tone_library::{ToneLibrary, ToneSample, EMBEDDED_TONE_LIBRARY};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const RESOURCE_TYPE_WAV: u32 = 1;
@@ -472,7 +473,9 @@ struct MidiVoice {
     note: u8,
     program: u8,
     velocity: f32,
-    phase: f32,
+    phase: f64,
+    tone_sample: Option<ToneSample<'static>>,
+    sample_finished: bool,
     age: usize,
     release_remaining: Option<usize>,
     release_length: usize,
@@ -483,6 +486,7 @@ struct MidiVoice {
 #[derive(Debug)]
 struct MidiSynth {
     sample_rate: u32,
+    tone_library: ToneLibrary<'static>,
     channels: [MidiChannel; 16],
     voices: Vec<MidiVoice>,
 }
@@ -491,6 +495,8 @@ impl MidiSynth {
     fn new(sample_rate: u32) -> Self {
         Self {
             sample_rate,
+            tone_library: ToneLibrary::new(EMBEDDED_TONE_LIBRARY)
+                .expect("embedded tone library must be valid"),
             channels: [MidiChannel::default(); 16],
             voices: Vec::new(),
         }
@@ -518,13 +524,22 @@ impl MidiSynth {
 
     fn note_on(&mut self, channel: u8, note: u8, velocity: u8) {
         self.note_off(channel, note);
-        let percussion_length = (channel == 9).then_some((self.sample_rate / 4) as usize);
+        let program = self.channels[usize::from(channel)].program;
+        let tone_sample = if channel == 9 {
+            self.tone_library.percussion_sample(note)
+        } else {
+            self.tone_library.melodic_sample(program, note)
+        };
+        let percussion_length =
+            (channel == 9 && tone_sample.is_none()).then_some((self.sample_rate / 4) as usize);
         self.voices.push(MidiVoice {
             channel,
             note,
-            program: self.channels[usize::from(channel)].program,
+            program,
             velocity: f32::from(velocity) / 127.0,
             phase: 0.0,
+            tone_sample,
+            sample_finished: false,
             age: 0,
             release_remaining: None,
             release_length: (self.sample_rate / 20).max(1) as usize,
@@ -599,7 +614,11 @@ impl MidiSynth {
 impl MidiVoice {
     fn envelope(&self, sample_rate: u32) -> f32 {
         let attack_length = (sample_rate / 100).max(1) as usize;
-        let attack = (self.age as f32 / attack_length as f32).min(1.0);
+        let attack = if self.channel == 9 {
+            1.0
+        } else {
+            (self.age as f32 / attack_length as f32).min(1.0)
+        };
         let release = self.release_remaining.map_or(1.0, |remaining| {
             remaining as f32 / self.release_length as f32
         });
@@ -610,6 +629,53 @@ impl MidiVoice {
     }
 
     fn next_sample(&mut self, sample_rate: u32) -> f32 {
+        let sample = if let Some(tone_sample) = self.tone_sample {
+            self.next_tone_sample(tone_sample, sample_rate)
+        } else {
+            self.next_fallback_sample(sample_rate)
+        };
+
+        self.age += 1;
+        if let Some(remaining) = &mut self.release_remaining {
+            *remaining = remaining.saturating_sub(1);
+        }
+        sample
+    }
+
+    fn next_tone_sample(&mut self, tone_sample: ToneSample<'static>, output_rate: u32) -> f32 {
+        if self.sample_finished || tone_sample.data.is_empty() {
+            return 0.0;
+        }
+
+        let sample_position = self.phase.floor() as usize;
+        if sample_position >= tone_sample.data.len() {
+            if let Some(loop_start) = tone_sample.loop_start {
+                let loop_length = tone_sample.data.len() - loop_start;
+                self.phase =
+                    loop_start as f64 + (self.phase - loop_start as f64) % loop_length as f64;
+            } else {
+                self.sample_finished = true;
+                return 0.0;
+            }
+        }
+
+        let first_position = self.phase.floor() as usize;
+        let second_position = if first_position + 1 < tone_sample.data.len() {
+            first_position + 1
+        } else {
+            tone_sample.loop_start.unwrap_or(first_position)
+        };
+        let fraction = (self.phase - first_position as f64) as f32;
+        let first = f32::from(tone_sample.data[first_position] as i8) / 128.0;
+        let second = f32::from(tone_sample.data[second_position] as i8) / 128.0;
+        let sample = first + (second - first) * fraction;
+        let pitch_ratio =
+            2.0f64.powf((f64::from(self.note) - f64::from(tone_sample.root_key)) / 12.0);
+        self.phase += f64::from(tone_sample.sample_rate) / f64::from(output_rate) * pitch_ratio;
+        sample
+    }
+
+    fn next_fallback_sample(&mut self, sample_rate: u32) -> f32 {
         let frequency = 440.0 * 2.0f32.powf((f32::from(self.note) - 69.0) / 12.0);
         let sample = if self.channel == 9 {
             self.noise ^= self.noise << 13;
@@ -619,11 +685,11 @@ impl MidiVoice {
         } else {
             match self.program / 8 {
                 0 => {
-                    (std::f32::consts::TAU * self.phase).sin()
-                        + 0.35 * (std::f32::consts::TAU * self.phase * 2.0).sin()
+                    (std::f64::consts::TAU * self.phase).sin() as f32
+                        + 0.35 * (std::f64::consts::TAU * self.phase * 2.0).sin() as f32
                 }
-                1 | 2 => 1.0 - 4.0 * (self.phase - 0.5).abs(),
-                3..=5 => 2.0 * self.phase - 1.0,
+                1 | 2 => (1.0 - 4.0 * (self.phase - 0.5).abs()) as f32,
+                3..=5 => (2.0 * self.phase - 1.0) as f32,
                 6 | 7 => {
                     if self.phase < 0.5 {
                         1.0
@@ -631,20 +697,17 @@ impl MidiVoice {
                         -1.0
                     }
                 }
-                _ => (std::f32::consts::TAU * self.phase).sin(),
+                _ => (std::f64::consts::TAU * self.phase).sin() as f32,
             }
         };
 
-        self.phase = (self.phase + frequency / sample_rate as f32).fract();
-        self.age += 1;
-        if let Some(remaining) = &mut self.release_remaining {
-            *remaining = remaining.saturating_sub(1);
-        }
+        self.phase = (self.phase + f64::from(frequency) / f64::from(sample_rate)).fract();
         sample
     }
 
     fn finished(&self) -> bool {
         self.release_remaining == Some(0)
+            || self.sample_finished
             || self
                 .percussion_length
                 .is_some_and(|length| self.age >= length)
@@ -752,5 +815,43 @@ mod tests {
         assert!(rendered.len() >= 8_000);
         assert!(rendered.iter().any(|sample| *sample != 0));
         assert_eq!(rendered.len() % 2, 0);
+    }
+
+    #[test]
+    fn midi_voices_use_embedded_tone_samples() {
+        let mut synth = MidiSynth::new(22_050);
+        synth.handle(MidiMessage::Program {
+            channel: 0,
+            program: 48,
+        });
+        synth.handle(MidiMessage::NoteOn {
+            channel: 0,
+            note: 60,
+            velocity: 100,
+        });
+        synth.handle(MidiMessage::NoteOn {
+            channel: 9,
+            note: 36,
+            velocity: 100,
+        });
+
+        let strings = synth
+            .voices
+            .iter()
+            .find(|voice| voice.channel == 0)
+            .and_then(|voice| voice.tone_sample)
+            .unwrap();
+        let kick = synth
+            .voices
+            .iter()
+            .find(|voice| voice.channel == 9)
+            .and_then(|voice| voice.tone_sample)
+            .unwrap();
+
+        assert_eq!(strings.sample_rate, 13_500);
+        assert_eq!(strings.root_key, 60);
+        assert_eq!(strings.loop_start, Some(6_278));
+        assert_eq!(kick.sample_rate, 11_025);
+        assert_eq!(kick.loop_start, None);
     }
 }

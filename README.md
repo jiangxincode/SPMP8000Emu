@@ -28,7 +28,7 @@ ARM-based CPU and HLE system API.
 - **ARM CPU emulation** — ARM mode instruction set (data processing, load/store, block transfer, branch, multiply, SVC)
 - **HLE system API** — emuIf, NativeGE, and eCos interfaces with instruction-driven timing
 - **Graphics rendering** — presentation-synchronized RGB565 and indexed-palette surfaces, sprite color-key transparency, 8 transformation modes, 320×240 display
-- **Audio emulation** — WAV decoding and MIDI synthesis (16-channel, multi-voice) mixed to 22050 Hz stereo output
+- **Audio emulation** — WAV decoding and sample-based MIDI synthesis using the original SPMP8000 tone bank, mixed to 22050 Hz stereo output
 - **Input handling** — keyboard input with configurable mappings
 - **RetroArch integration** — libretro core for RetroArch frontend
 - **True reset** — rebuilds CPU, memory, HLE, graphics, audio, and input runtime state
@@ -92,6 +92,8 @@ For iOS, see [iOS Libretro Core](docs/iOS-Libretro-Core.md).
 ```
 crates/
 ├── spmp8000emu-core/         # Platform-independent emulator engine (library)
+│   ├── assets/
+│   │   └── tonelib.bin      # Embedded SPMP8000 PCM tone bank
 │   └── src/
 │       ├── lib.rs            # Crate root
 │       ├── emulator.rs       # Core emulator tying all components together
@@ -102,6 +104,7 @@ crates/
 │       ├── renderer.rs       # RGB565 → XRGB8888 framebuffer conversion
 │       ├── audio_engine.rs   # Audio source mixing and frame output
 │       ├── audio_resource.rs # WAV decoding and MIDI synthesis
+│       ├── tone_library.rs   # Tone-bank patch and PCM sample parser
 │       ├── input_handler.rs  # Button state management
 │       ├── function_table.rs # HLE function trampolines
 │       ├── save_state.rs     # Save-state data structures

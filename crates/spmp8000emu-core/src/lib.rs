@@ -20,3 +20,4 @@ pub mod input_handler;
 pub mod memory;
 pub mod renderer;
 pub mod save_state;
+mod tone_library;
