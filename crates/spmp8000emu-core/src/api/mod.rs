@@ -214,8 +214,9 @@ impl NGameApi {
     fn return_success(&mut self, memory: &mut Memory) {
         memory.set_register(crate::memory::REG_R0, 0);
     }
-    /// Handle an SVC call
-    pub fn handle_svc(&mut self, svc_num: u32, memory: &mut Memory) {
+    /// Handle an SVC call and report whether it presents a complete video frame.
+    pub fn handle_svc(&mut self, svc_num: u32, memory: &mut Memory) -> bool {
+        let frame_presented = matches!(svc_num, 0x03 | 0x2B | 0x31);
         match svc_num {
             // NativeGE functions
             0x01 => {
@@ -303,6 +304,7 @@ impl NGameApi {
                 log::warn!("Unhandled SVC call: 0x{:02X}", svc_num);
             }
         }
+        frame_presented
     }
 }
 

@@ -240,8 +240,11 @@ impl Emulator {
                 Ok(crate::arm_cpu::CpuResult::Continue) => {}
                 Ok(crate::arm_cpu::CpuResult::SvcCall(svc_num)) => {
                     self.sync_cpu_registers_to_memory();
-                    self.api.handle_svc(svc_num, &mut self.memory);
+                    let frame_presented = self.api.handle_svc(svc_num, &mut self.memory);
                     self.sync_memory_registers_to_cpu();
+                    if frame_presented {
+                        self.present_frame();
+                    }
                 }
                 Ok(crate::arm_cpu::CpuResult::Halt) => {
                     self.is_running = false;
@@ -292,7 +295,17 @@ impl Emulator {
         // Apply enabled freezes after game logic and before frame outputs.
         self.cheats.apply(&mut self.memory, &mut self.cpu);
 
-        // Update renderer
+        for command in self.api.take_audio_commands() {
+            self.audio.handle_command(command);
+        }
+        let streamed_pcm = self
+            .api
+            .audio_buffer_addr
+            .map(|address| (address, self.api.audio_buffer_size, self.api.audio_channels));
+        self.audio.render_frame(&self.memory, streamed_pcm);
+    }
+
+    fn present_frame(&mut self) {
         if self.renderer.fb_addr != self.api.framebuffer_addr {
             self.renderer
                 .set_framebuffer_address(self.api.framebuffer_addr);
@@ -306,15 +319,6 @@ impl Emulator {
                 .set_dimensions(self.api.framebuffer_width, self.api.framebuffer_height);
         }
         self.renderer.update_from_memory(&self.memory);
-
-        for command in self.api.take_audio_commands() {
-            self.audio.handle_command(command);
-        }
-        let streamed_pcm = self
-            .api
-            .audio_buffer_addr
-            .map(|address| (address, self.api.audio_buffer_size, self.api.audio_channels));
-        self.audio.render_frame(&self.memory, streamed_pcm);
     }
 
     fn should_skip_cpu_error(&self, error: &crate::arm_cpu::CpuError) -> bool {
@@ -582,6 +586,33 @@ mod tests {
 
         let emu = Emulator::from_path(test_path, 100);
         assert!(emu.is_ok());
+    }
+
+    #[test]
+    fn framebuffer_is_sampled_when_the_game_presents_it() {
+        let words = [
+            0xE59F_1014, // LDR r1, [pc, #20]
+            0xE59F_2014, // LDR r2, [pc, #20]
+            0xE581_2000, // STR r2, [r1]
+            0xEF00_0003, // SVC MCatchPaint
+            0xE59F_200C, // LDR r2, [pc, #12]
+            0xE581_2000, // STR r2, [r1]
+            0xEAFF_FFFE, // B .
+            VRAM_BASE,
+            0x0000_F800,
+            0x0000_07E0,
+        ];
+        let boot_code = words
+            .iter()
+            .flat_map(|word| word.to_le_bytes())
+            .collect::<Vec<_>>();
+        let mut emu = test_emulator_with_code(0, &boot_code);
+
+        emu.start();
+        emu.tick();
+
+        assert_eq!(emu.memory.read_u16(VRAM_BASE).unwrap(), 0x07E0);
+        assert_eq!(&emu.get_framebuffer()[..4], &[255, 0, 0, 255]);
     }
 
     #[test]

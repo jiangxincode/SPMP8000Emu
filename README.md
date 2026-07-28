@@ -27,7 +27,7 @@ ARM-based CPU and HLE system API.
 - **NGame1.0 format support** — file loading, header parsing, DES decryption, LZ77/RLE decompression
 - **ARM CPU emulation** — ARM mode instruction set (data processing, load/store, block transfer, branch, multiply, SVC)
 - **HLE system API** — emuIf, NativeGE, and eCos interfaces with instruction-driven timing
-- **Graphics rendering** — direct RGB565 and indexed-palette surfaces, sprite color-key transparency, 8 transformation modes, 320×240 display
+- **Graphics rendering** — presentation-synchronized RGB565 and indexed-palette surfaces, sprite color-key transparency, 8 transformation modes, 320×240 display
 - **Audio emulation** — WAV decoding and MIDI synthesis (16-channel, multi-voice) mixed to 22050 Hz stereo output
 - **Input handling** — keyboard input with configurable mappings
 - **RetroArch integration** — libretro core for RetroArch frontend
