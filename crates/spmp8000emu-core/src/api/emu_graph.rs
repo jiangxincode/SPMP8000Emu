@@ -5,6 +5,27 @@ use crate::memory::{Memory, VRAM_BASE};
 
 const SPRITE_TRANSPARENT_COLORS: [u16; 2] = [0xF81B, 0xF81F];
 
+/// Default 16-color palette (EGA-style) for indexed images without explicit palette.
+/// Used when palette_addr == 0 for img_type 1 (8-bit) or 2 (4-bit) surfaces.
+const DEFAULT_PALETTE_16: [u16; 16] = [
+    0x0000, // 0: Black
+    0x0015, // 1: Dark Blue (0, 0, 21)
+    0x0540, // 2: Dark Green (0, 42, 0)
+    0x0555, // 3: Dark Cyan (0, 42, 21)
+    0xA800, // 4: Dark Red (84, 0, 0)
+    0xA815, // 5: Dark Magenta (84, 0, 21)
+    0x5280, // 6: Brown/Dark Yellow (42, 42, 0)
+    0x5295, // 7: Light Gray (42, 42, 21)
+    0x5295, // 8: Dark Gray (same as light gray in 16-color palette)
+    0x03FF, // 9: Blue (0, 63, 31)
+    0x7FE0, // 10: Green (0, 255, 0)
+    0x7FFF, // 11: Cyan (0, 255, 31)
+    0xFC00, // 12: Red (255, 0, 0)
+    0xFC1F, // 13: Magenta (255, 0, 31)
+    0xFFE0, // 14: Yellow (255, 255, 0)
+    0xFFFF, // 15: White
+];
+
 /// emuIf graphics parameter structure
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -463,8 +484,9 @@ impl NGameApi {
 
         let index = self.read_surface_index(memory, surface, x, y);
         if surface.palette_addr == 0 {
-            let v = index as u16;
-            return Some(((v & 0xF8) << 8) | ((v & 0xFC) << 3) | (v >> 3));
+            // Use default 16-color palette for indexed images without explicit palette
+            let palette_index = (index as usize) % DEFAULT_PALETTE_16.len();
+            return Some(DEFAULT_PALETTE_16[palette_index]);
         }
         memory
             .read_u16(surface.palette_addr + index as u32 * 2)
@@ -782,5 +804,55 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(pixels, vec![3, 2, 1, 6, 5, 4]);
         assert!(api.pending_transformation.is_none());
+    }
+
+    #[test]
+    fn indexed_surface_uses_default_palette_when_palette_addr_is_zero() {
+        const DATA_ADDR: u32 = 0x1000;
+        const RECT_ADDR: u32 = 0x1200;
+        const AT_ADDR: u32 = 0x1300;
+
+        let mut api = NGameApi::new();
+        api.framebuffer_addr = Some(VRAM_BASE);
+        api.framebuffer_width = 4;
+        api.framebuffer_height = 1;
+        api.framebuffer_pitch = 8;
+        api.surfaces.insert(
+            1,
+            Surface {
+                data_addr: DATA_ADDR,
+                width: 4,
+                height: 1,
+                img_type: 1,     // 8-bit indexed
+                palette_addr: 0, // No palette
+                palette_entries: 0,
+            },
+        );
+
+        let mut memory = Memory::new();
+        memory
+            .map_region(DATA_ADDR, 0x1000, Permission::ALL, "RAM")
+            .unwrap();
+        memory
+            .map_region(VRAM_BASE, 0x1000, Permission::ALL, "VRAM")
+            .unwrap();
+        // Write pixel indices: 0, 5, 10, 15
+        memory.write_u8(DATA_ADDR, 0).unwrap();
+        memory.write_u8(DATA_ADDR + 1, 5).unwrap();
+        memory.write_u8(DATA_ADDR + 2, 10).unwrap();
+        memory.write_u8(DATA_ADDR + 3, 15).unwrap();
+        memory.write_u16(RECT_ADDR + 4, 4).unwrap();
+        memory.write_u16(RECT_ADDR + 6, 1).unwrap();
+        memory.set_register(REG_R0, 1);
+        memory.set_register(REG_R1, RECT_ADDR);
+        memory.set_register(REG_R2, AT_ADDR);
+
+        api.mcatch_bitblt(&mut memory);
+
+        // Verify default palette colors are used
+        assert_eq!(memory.read_u16(VRAM_BASE).unwrap(), 0x0000); // Index 0: Black
+        assert_eq!(memory.read_u16(VRAM_BASE + 2).unwrap(), 0xA815); // Index 5: Dark Magenta
+        assert_eq!(memory.read_u16(VRAM_BASE + 4).unwrap(), 0x7FE0); // Index 10: Green
+        assert_eq!(memory.read_u16(VRAM_BASE + 6).unwrap(), 0xFFFF); // Index 15: White
     }
 }
