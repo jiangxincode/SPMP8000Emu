@@ -68,11 +68,12 @@ impl Renderer {
                 let g8 = (g << 2) | (g >> 4);
                 let b8 = (b << 3) | (b >> 2);
 
+                // Little-endian XRGB8888 byte order: [B, G, R, X]
                 let out_offset = i * 4;
-                self.framebuffer[out_offset] = r8;
+                self.framebuffer[out_offset] = b8;
                 self.framebuffer[out_offset + 1] = g8;
-                self.framebuffer[out_offset + 2] = b8;
-                self.framebuffer[out_offset + 3] = 0xFF; // Alpha
+                self.framebuffer[out_offset + 2] = r8;
+                self.framebuffer[out_offset + 3] = 0x00; // X (unused)
             }
         }
     }
@@ -143,6 +144,8 @@ impl Renderer {
     }
 
     /// Save the current framebuffer as a PNG image.
+    ///
+    /// The framebuffer stores pixels in little-endian XRGB8888 byte order [B, G, R, X].
     pub fn save_screenshot(&self, path: &Path) -> anyhow::Result<()> {
         let mut img = image::RgbaImage::new(self.width, self.height);
         for y in 0..self.height {
@@ -152,10 +155,10 @@ impl Renderer {
                     x,
                     y,
                     image::Rgba([
-                        self.framebuffer[offset],
-                        self.framebuffer[offset + 1],
-                        self.framebuffer[offset + 2],
-                        self.framebuffer[offset + 3],
+                        self.framebuffer[offset + 2], // R
+                        self.framebuffer[offset + 1], // G
+                        self.framebuffer[offset],     // B
+                        0xFF,
                     ]),
                 );
             }
@@ -163,7 +166,9 @@ impl Renderer {
         img.save(path)?;
         Ok(())
     }
-    /// Fill a rectangle with a color (for debugging/testing)
+    /// Fill a rectangle with a color (for debugging/testing).
+    ///
+    /// The framebuffer stores pixels in little-endian XRGB8888 byte order [B, G, R, X].
     #[allow(clippy::too_many_arguments)]
     pub fn fill_rect(&mut self, x: u32, y: u32, w: u32, h: u32, r: u8, g: u8, b: u8) {
         for dy in 0..h {
@@ -173,10 +178,10 @@ impl Renderer {
                 if px < self.width && py < self.height {
                     let offset = ((py * self.width + px) * 4) as usize;
                     if offset + 3 < self.framebuffer.len() {
-                        self.framebuffer[offset] = r;
+                        self.framebuffer[offset] = b;
                         self.framebuffer[offset + 1] = g;
-                        self.framebuffer[offset + 2] = b;
-                        self.framebuffer[offset + 3] = 0xFF;
+                        self.framebuffer[offset + 2] = r;
+                        self.framebuffer[offset + 3] = 0x00;
                     }
                 }
             }
@@ -211,11 +216,12 @@ mod tests {
         renderer.set_framebuffer_address(Some(0x1000));
         renderer.update_from_memory(&memory);
 
+        // Little-endian XRGB8888 byte order: [B, G, R, X]
         let fb = renderer.get_framebuffer();
-        assert_eq!(fb[0], 255); // R
+        assert_eq!(fb[0], 255); // B
         assert_eq!(fb[1], 255); // G
-        assert_eq!(fb[2], 255); // B
-        assert_eq!(fb[3], 255); // A
+        assert_eq!(fb[2], 255); // R
+        assert_eq!(fb[3], 0); // X
     }
 
     #[test]
@@ -235,11 +241,12 @@ mod tests {
         let mut renderer = Renderer::new(4, 4);
         renderer.fill_rect(1, 1, 2, 2, 255, 0, 0);
 
+        // Little-endian XRGB8888 byte order: [B, G, R, X]
         let fb = renderer.get_framebuffer();
         // Check pixel at (1,1)
         let offset = 20; // (1 * 4 + 1) * 4
-        assert_eq!(fb[offset], 255); // R
+        assert_eq!(fb[offset], 0); // B
         assert_eq!(fb[offset + 1], 0); // G
-        assert_eq!(fb[offset + 2], 0); // B
+        assert_eq!(fb[offset + 2], 255); // R
     }
 }

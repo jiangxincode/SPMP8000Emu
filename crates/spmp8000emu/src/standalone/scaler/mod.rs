@@ -119,11 +119,13 @@ impl DisplayScaler {
     }
 }
 
-/// Convert the core RGBA framebuffer to minifb's XRGB format.
+/// Convert the core XRGB8888 framebuffer to minifb's packed XRGB u32 format.
+///
+/// The framebuffer stores pixels in little-endian XRGB8888 byte order [B, G, R, X].
 pub fn rgba_to_xrgb(src: &[u8], dst: &mut Vec<u32>) {
     dst.resize(src.len() / 4, 0);
-    for (pixel, rgba) in dst.iter_mut().zip(src.chunks_exact(4)) {
-        *pixel = ((rgba[0] as u32) << 16) | ((rgba[1] as u32) << 8) | rgba[2] as u32;
+    for (pixel, bytes) in dst.iter_mut().zip(src.chunks_exact(4)) {
+        *pixel = ((bytes[2] as u32) << 16) | ((bytes[1] as u32) << 8) | bytes[0] as u32;
     }
 }
 
@@ -163,12 +165,13 @@ mod tests {
 
     #[test]
     fn rgba_conversion_ignores_alpha_and_reuses_storage() {
+        // Input is little-endian XRGB8888: [B, G, R, X]
         let mut output = Vec::with_capacity(2);
-        rgba_to_xrgb(&[0x12, 0x34, 0x56, 0x78, 0xAB, 0xCD, 0xEF, 0], &mut output);
+        rgba_to_xrgb(&[0x56, 0x34, 0x12, 0x78, 0xEF, 0xCD, 0xAB, 0], &mut output);
         let pointer = output.as_ptr();
         assert_eq!(output, [0x00123456, 0x00ABCDEF]);
 
-        rgba_to_xrgb(&[1, 2, 3, 4, 5, 6, 7, 8], &mut output);
+        rgba_to_xrgb(&[3, 2, 1, 4, 7, 6, 5, 8], &mut output);
         assert_eq!(pointer, output.as_ptr());
         assert_eq!(output, [0x00010203, 0x00050607]);
     }

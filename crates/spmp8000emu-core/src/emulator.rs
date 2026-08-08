@@ -612,7 +612,8 @@ mod tests {
         emu.tick();
 
         assert_eq!(emu.memory.read_u16(VRAM_BASE).unwrap(), 0x07E0);
-        assert_eq!(&emu.get_framebuffer()[..4], &[255, 0, 0, 255]);
+        // Little-endian XRGB8888: [B, G, R, X] — 0xF800 is pure red in RGB565
+        assert_eq!(&emu.get_framebuffer()[..4], &[0, 0, 255, 0]);
     }
 
     #[test]
